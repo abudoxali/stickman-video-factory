@@ -1,0 +1,4 @@
+godot-mcp editor add-on v4.1.11 by Christopher Childress (satelliteoflove),
+https://github.com/satelliteoflove/godot-mcp — MIT (see LICENSE).
+Installed with: npx @satelliteoflove/godot-mcp@4.1.11 --install-addon godot/cutout-lab
+Source reviewed 2026-10-09: WebSocket bound to 127.0.0.1:6550 by default.

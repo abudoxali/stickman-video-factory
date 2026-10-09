@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "godot": {
+      "command": "node",
+      "args": ["scripts/godot-mcp-server.mjs"]
+    }
+  }
+}
