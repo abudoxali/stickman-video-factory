@@ -2,9 +2,10 @@
 // Usage: npx tsx scripts/probe.ts <frame> [<frame> ...]
 import { anchorPoint } from "../src/engine/anchors";
 import { evaluateScene, getRuntime } from "../src/engine/runtime";
+import { motionLibrary } from "../src/scenes/motionLibrary";
 import { theSurprise } from "../src/scenes/theSurprise";
 
-const def = theSurprise;
+const def = process.env.SCENE === "motion-library" ? motionLibrary : theSurprise;
 const rt = getRuntime(def);
 for (const tr of def.characters) for (const w of rt.bakes.get(tr.id)!.warnings) console.log("WARN", w);
 const f2 = (p: { x: number; y: number }) => `(${p.x.toFixed(0)},${p.y.toFixed(0)})`;

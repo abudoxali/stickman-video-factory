@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Deterministic final render: Remotion PNG frames -> pinned ffmpeg/x264 encode.
-# (Remotion's built-in JPEG+encode path showed sub-LSB frame drift between runs;
-#  PNG frames and this encode are byte-reproducible — see STATUS.md.)
+# Remotion's PNG frames are byte-identical across runs/concurrency; multi-
+# threaded x264 is NOT (different MP4s from identical PNGs on long sequences),
+# so the encode is pinned to one thread. Result: byte-identical MP4s.
 # Usage: scripts/render-final.sh <CompositionId> <out.mp4> [concurrency=4]
 set -euo pipefail
 COMP="$1"; OUT="$2"; CONC="${3:-4}"
@@ -14,8 +15,8 @@ COUNT=$(ls "$FRAMES"/*.png | wc -l)
 echo "rendered $COUNT PNG frames"
 # zero-padded names sort correctly, so a glob input keeps frame order
 ffmpeg -v error -y -framerate 30 -pattern_type glob -i "$FRAMES/*.png" \
-  -c:v libx264 -preset medium -crf 16 -pix_fmt yuv420p -tune animation \
+  -c:v libx264 -preset medium -crf 16 -pix_fmt yuv420p -tune animation -threads 1 \
   -movflags +faststart "$OUT"
 end=$(date +%s)
 rm -rf "$FRAMES"
-echo "rendered $COMP -> $OUT (frames ${mid}-${start}=$((mid-start))s, encode $((end-mid))s)"
+echo "rendered $COMP -> $OUT (frames $((mid-start))s, encode $((end-mid))s)"

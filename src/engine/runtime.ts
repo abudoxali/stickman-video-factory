@@ -194,6 +194,12 @@ const propStateAt = (
     }
     return out;
   }
+  if (st.mode === "slide") {
+    const prev = idx > 0 ? propStateAt(rt, prop, idx - 1, st.from, resolve) : { x: st.to[0], y: st.to[1], rot: 0 };
+    const u = clamp((frame - st.from) / Math.max(1, st.dur), 0, 1);
+    const k = ease[st.ease ?? "inOutSine"](u);
+    return { x: lerp(prev.x, st.to[0], k), y: lerp(prev.y, st.to[1], k), rot: prev.rot, vx: 0, vy: 0, airborne: false };
+  }
   // ballistic
   const start =
     st.fromPos !== undefined

@@ -307,7 +307,7 @@ export const CLIPS: Record<string, Clip> = {
     fn: (c) => {
       const tgt = c.target(c.params.target as TargetRef);
       const effort = 1 + 0.02 * noise1(c.t / 2, 3);
-      const body: Pose = { ...c.pose, lean: c.pose.lean + 0.38, chest: c.pose.chest + 0.08, hipY: c.pose.hipY - 16 };
+      const body: Pose = { ...c.pose, lean: c.pose.lean + 0.26, chest: c.pose.chest + 0.06, hipY: c.pose.hipY - 24 };
       const ikF = reachAngles(c.spec, body, "F", add(tgt, v(0, -8)));
       const ikB = reachAngles(c.spec, body, "B", add(tgt, v(0, 10)));
       return {

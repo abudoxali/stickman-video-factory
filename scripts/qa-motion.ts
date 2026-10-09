@@ -10,9 +10,10 @@ import { evaluateCamera } from "../src/engine/camera";
 import { dist, rotate, v, type Vec2 } from "../src/engine/math";
 import { evaluateScene, getRuntime } from "../src/engine/runtime";
 import type { SceneDef } from "../src/engine/scene";
+import { motionLibrary } from "../src/scenes/motionLibrary";
 import { theSurprise } from "../src/scenes/theSurprise";
 
-const SCENES: Record<string, SceneDef> = { "the-surprise": theSurprise };
+const SCENES: Record<string, SceneDef> = { "the-surprise": theSurprise, "motion-library": motionLibrary };
 const name = process.argv[2] ?? "the-surprise";
 const def = SCENES[name];
 if (!def) throw new Error(`unknown scene ${name}`);
@@ -226,7 +227,7 @@ const report = {
   anchorsChecked: anchorPoint !== undefined,
 };
 fs.mkdirSync("out/qa", { recursive: true });
-fs.writeFileSync(path.join("out/qa", "motion-report.json"), JSON.stringify(report, null, 2));
+fs.writeFileSync(path.join("out/qa", `motion-report-${def.id}.json`), JSON.stringify(report, null, 2));
 
 console.log(`Motion QA: ${def.id} (${N} frames)`);
 for (const [id, P] of Object.entries(per))

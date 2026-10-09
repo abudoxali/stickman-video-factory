@@ -93,6 +93,14 @@ export type PropState =
     }
   | {
       from: number;
+      mode: "slide";
+      /** Eased ground slide (pushed/pulled objects) from the previous position. */
+      to: [number, number];
+      dur: number;
+      ease?: EaseName;
+    }
+  | {
+      from: number;
       mode: "attach";
       char: string;
       part: AnchorPart;

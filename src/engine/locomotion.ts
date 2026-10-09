@@ -632,7 +632,8 @@ export const bakeLocomotion = (
     const f = frames[i];
     f.speed = vel[i];
     const sp = Math.abs(vel[i]) / vmax;
-    const grounded = 1 - f.airborne;
+    // Run flight phases keep the locomotion posture; only jumps drop it.
+    const grounded = 1 - f.airborne * (1 - f.run);
     f.moving = clamp01(sp * 1.6) * grounded * (1 - f.sit) * (1 - f.lying);
     const accel = (vel[Math.min(n - 1, i + 2)] - vel[Math.max(0, i - 2)]) / 4;
     const dirn = f.facing >= 0 ? 1 : -1;
