@@ -276,7 +276,8 @@ export const showOff: SceneDef = {
           peak: 220,
           spin: 2,
         },
-        { from: 531, mode: "ballistic", to: [1010, FLOOR - BALL_R], dur: 22, peak: 160, spin: 3, bounces: [[40, 12], [12, 8]], skid: 10 },
+        // ... and bounces away over his head, rolling out of frame (never resting on his body)
+        { from: 531, mode: "ballistic", to: [1470, FLOOR - BALL_R], dur: 22, peak: 200, spin: 4, bounces: [[40, 12], [12, 8]], skid: 40 },
       ],
     },
   ],

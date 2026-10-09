@@ -98,6 +98,7 @@ npm run bench            # arm-blend A/B; npm run bench:engines = cross-engine t
 npm run godot:render     # Godot lab -> public/renders/godot-lab (needs godot on PATH)
 npm run godot:editor     # open the lab in the Godot editor (enables godot-mcp on :6550)
 npm run blender:render   # Blender GP rig lab -> public/renders/blender-lab
+npm run blender:mcp      # headless Blender MCP bridge on localhost:9876 (Blender Lab add-on)
 npm run blender:clip:export  # editable clip_lab.blend action -> src/clips/warmUp.json
 npm run blender:clip:rebuild # rebuild authored warmUp action in Blender, save and export
 npm run assets           # rebuild src/assets/manifest.json after adding a pack
