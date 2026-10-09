@@ -44,6 +44,8 @@ export interface ClipCtx {
 export interface Clip {
   kind: "override" | "additive";
   description: string;
+  /** How arm channels blend in/out: "hand" (default, hand travels on an arc around the shoulder) or "angle". */
+  armBlend?: "hand" | "angle";
   fn: (c: ClipCtx) => PartialPose;
 }
 
@@ -637,6 +639,116 @@ export const CLIPS: Record<string, Clip> = {
     kind: "additive",
     description: "Additive suppressed-laughter shake of shoulders and chest.",
     fn: (c) => ({ shrug: 3 * Math.sin(c.t * 2.2), chest: 0.025 * Math.sin(c.t * 2.2 + 0.5), head: 0.02 * Math.sin(c.t * 2.2 + 1) }),
+  },
+
+  // ------------------------------------------------------------ throw/catch
+  throw: {
+    kind: "override",
+    description:
+      "Throw with anticipation: wind-up (weight back, arm cocked), accelerating whip to the release frame, follow-through past the target, settle. params: side, target (aim), release (frame offset of the release), style ('underhand' | 'overhand'), power (0.5..1.5).",
+    fn: (c) => {
+      const side = sideOf(c.params.side);
+      const other: Side = side === "F" ? "B" : "F";
+      const r = Number(c.params.release ?? Math.round(c.dur * 0.6));
+      const p = Number(c.params.power ?? 1);
+      const over = c.params.style === "overhand";
+      const sh0 = c.pose[side === "F" ? "aFsh" : "aBsh"];
+      // aim: direction from shoulder to target, kept in a sane release band
+      const tgt = c.target(c.params.target as TargetRef);
+      const shp = c.self(side === "F" ? "shoulderF" : "shoulderB");
+      const d = sub(tgt, shp);
+      const aim = clamp(Math.atan2(d.x * c.fwd, d.y), 0.9, 2.5);
+      const windT = Math.max(4, r - (over ? 6 : 7));
+      const wind = progress(c.t, 0, windT, ease.inOutCubic);
+      const whip = progress(c.t, windT, r, ease.inQuad);
+      const follow = progress(c.t, r, r + 9, ease.outCubic);
+      const settle = progress(c.t, r + 9, r + 22, ease.inOutSine);
+      // cocked pose (tension tremble during the hold before the whip)
+      const tremble = 0.03 * Math.sin(c.t * 2.1) * wind * (1 - whip);
+      const cockSh = over ? 3.45 : -0.95 * p;
+      const cockEl = over ? 1.95 : 0.3;
+      const followSh = over ? 0.55 : aim + 0.7;
+      const followEl = over ? 0.55 : 0.25;
+      let sh = lerp(sh0, cockSh, wind) + tremble;
+      let el = lerp(c.pose[side === "F" ? "aFel" : "aBel"], cockEl, wind);
+      sh = lerp(sh, aim, whip);
+      el = lerp(el, 0.12, whip);
+      sh = lerp(sh, followSh, follow);
+      el = lerp(el, followEl, follow);
+      sh = lerp(sh, lerp(followSh, 0.35, 0.5), settle * 0.6);
+      // counterbalancing other arm swings opposite
+      const oSh = lerp(c.pose[other === "F" ? "aFsh" : "aBsh"], over ? 1.2 : 0.9, wind) - 1.1 * whip * (1 - settle * 0.5);
+      // weight: back on the wind, forward through the release
+      const weight = -0.14 * p * wind * (1 - whip) + 0.2 * p * whip * (1 - settle * 0.6);
+      return {
+        ...arm(side, sh, el, over ? -0.3 * wind : 0.2),
+        ...arm(other, oSh, 0.5 + 0.3 * wind),
+        ...hand(side, c.t < r ? 0.15 : lerp(0.15, 1, follow)),
+        ...hand(other, 0.7),
+        lean: c.pose.lean + weight,
+        chest: c.pose.chest + 0.5 * weight,
+        head: c.pose.head - 0.4 * weight,
+        hipY: c.pose.hipY - 14 * p * wind * (1 - whip) - 6 * whip * (1 - settle),
+        shrug: c.pose.shrug + 6 * wind * (1 - whip),
+        squash: 1 - 0.04 * wind * (1 - whip) + 0.05 * whip * (1 - follow),
+      };
+    },
+  },
+
+  catch: {
+    kind: "override",
+    description:
+      "Two-handed catch: hands open toward the catch point, widen just before contact, then absorb the impact (hands recoil to the chest, lean back, spring settle). params: target (catch point), at (frame offset of contact), width.",
+    fn: (c) => {
+      const at = Number(c.params.at ?? Math.round(c.dur * 0.5));
+      const w = Number(c.params.width ?? 60) / 2;
+      const tgt = c.target(c.params.target as TargetRef);
+      const chest = c.self("chest");
+      const ready = progress(c.t, 0, Math.min(at, 10), ease.outCubic);
+      const widen = progress(c.t, at - 5, at - 1, ease.outQuad) * (1 - progress(c.t, at, at + 2));
+      const hit = c.t >= at ? springStep((c.t - at) / 30, 2.6, 0.45) : 0;
+      const absorb = c.t >= at ? Math.exp(-(c.t - at) / 7) : 0;
+      // after contact the hands carry the ball toward the chest
+      const hold = add(chest, v(c.fwd * 46, -6));
+      const pt = vlerp(tgt, hold, clamp(hit, 0, 1.15));
+      const spread = w + 26 * widen - 8 * clamp(hit, 0, 1);
+      const ikF = reachAngles(c.spec, c.pose, "F", add(pt, v(c.fwd * spread * 0.6, 4)), HOLD_POLE_F);
+      const ikB = reachAngles(c.spec, c.pose, "B", add(pt, v(-c.fwd * spread * 0.6, -2)), HOLD_POLE_B);
+      return {
+        aFsh: ikF.sh,
+        aFel: ikF.el,
+        aBsh: ikB.sh,
+        aBel: ikB.el,
+        aFwr: -0.4,
+        aBwr: -0.4,
+        hFopen: lerp(1, 0.3, clamp(hit, 0, 1)),
+        hBopen: lerp(1, 0.3, clamp(hit, 0, 1)),
+        hipY: c.pose.hipY - 10 * ready - 14 * absorb,
+        lean: c.pose.lean + 0.06 * ready - 0.14 * absorb,
+        head: c.pose.head - 0.08 * absorb,
+        squash: 1 - 0.05 * absorb,
+      };
+    },
+  },
+
+  rubHead: {
+    kind: "override",
+    description: "Rub a sore head: hand to the back/top of the head (arm stays clear of the face) with small circular rubs, wince lean. params: side, rate.",
+    fn: (c) => {
+      const side = sideOf(c.params.side);
+      const rate = Number(c.params.rate ?? 1);
+      const top = c.self("headTop");
+      const ph = (c.t * rate) / 7;
+      const tgt = add(top, v(-c.fwd * (22 + 9 * Math.cos(ph)), -4 + 6 * Math.sin(ph)));
+      const ik = reachAngles(c.spec, c.pose, side, tgt, v(0.6, 1));
+      return {
+        ...arm(side, ik.sh, ik.el, -0.6),
+        ...hand(side, 0.8),
+        head: c.pose.head + 0.08 + 0.03 * Math.sin(ph),
+        shrug: c.pose.shrug + 5,
+        lean: c.pose.lean + 0.04,
+      };
+    },
   },
 
   offset: {

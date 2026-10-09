@@ -1,3 +1,4 @@
+import type { SceneAudioDef } from "./audio";
 import type { ExpressionName } from "./expressions";
 import type { LocoMove } from "./locomotion";
 import type { EaseName } from "./math";
@@ -78,6 +79,17 @@ export type PropState =
       from: number;
       mode: "ballistic";
       to: [number, number];
+      /**
+       * Land on a moving target instead of "to": the anchor/prop/point as it
+       * is at the landing frame (from + dur). Catches and hits then line up
+       * exactly with hands and heads without manual probing.
+       */
+      toRef?: TargetRef;
+      /**
+       * With toRef: stop this many px short of the anchor, along the line back
+       * to the throw origin (e.g. ball radius + head radius so surfaces touch).
+       */
+      contact?: number;
       dur: number;
       /** Extra apex height above the higher endpoint. */
       peak?: number;
@@ -158,7 +170,7 @@ export interface ShakeKey {
 
 export interface FxKey {
   at: number;
-  kind: "dust" | "puff" | "smoke" | "impactLines" | "confetti" | "sparkle" | "motionArc" | "breath";
+  kind: "dust" | "puff" | "smoke" | "impactLines" | "confetti" | "sparkle" | "motionArc" | "breath" | "stars" | "leaves";
   x: number;
   y: number;
   dur?: number;
@@ -184,7 +196,7 @@ export interface SceneDef {
   /** Keyframed set-dressing parameters (door swing, lamp glow ...). */
   set: Record<string, ParamKey[]>;
   /** Which set to draw. */
-  stage?: "room" | "plain";
+  stage?: "room" | "park" | "plain";
   /**
    * Draw order tokens: "set:back", "set:doorway", "set:door", "shadows",
    * "char:<id>", "props:back", "props:front", "fx", "set:fore".
@@ -192,4 +204,8 @@ export interface SceneDef {
   drawOrder?: string[];
   /** Spawn dust puffs automatically on jump landings / falls. */
   autoDust?: boolean;
+  /** Smear frames on fast arms (default on). */
+  limbSmears?: boolean;
+  /** Sound effects: authored cues + automatic footsteps/landings (see engine/audio.ts). */
+  audio?: SceneAudioDef;
 }

@@ -9,11 +9,8 @@ import { anchorPoint } from "../src/engine/anchors";
 import { evaluateCamera } from "../src/engine/camera";
 import { dist, rotate, v, type Vec2 } from "../src/engine/math";
 import { evaluateScene, getRuntime } from "../src/engine/runtime";
-import type { SceneDef } from "../src/engine/scene";
-import { motionLibrary } from "../src/scenes/motionLibrary";
-import { theSurprise } from "../src/scenes/theSurprise";
+import { SCENES } from "../src/scenes";
 
-const SCENES: Record<string, SceneDef> = { "the-surprise": theSurprise, "motion-library": motionLibrary };
 const name = process.argv[2] ?? "the-surprise";
 const def = SCENES[name];
 if (!def) throw new Error(`unknown scene ${name}`);

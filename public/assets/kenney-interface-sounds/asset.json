@@ -1,0 +1,14 @@
+{
+  "id": "kenney-interface-sounds",
+  "alias": "ui",
+  "kind": "sfx",
+  "title": "Interface Sounds (1.0)",
+  "author": "Kenney (www.kenney.nl)",
+  "source": "https://kenney.nl/assets/interface-sounds",
+  "download": "https://kenney.nl/media/pages/assets/interface-sounds/fa43c1dd4d-1677589452/kenney_interface-sounds.zip",
+  "license": "CC0-1.0",
+  "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+  "licenseFile": "License.txt",
+  "retrieved": "2026-10-09",
+  "notes": "100 OGG Vorbis UI clips (bong, pluck, drop, glass, toggle, scratch...). Used for cartoon accents. License verified from the License.txt inside the archive."
+}

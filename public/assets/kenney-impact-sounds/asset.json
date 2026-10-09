@@ -1,0 +1,14 @@
+{
+  "id": "kenney-impact-sounds",
+  "alias": "impact",
+  "kind": "sfx",
+  "title": "Impact Sounds (1.0)",
+  "author": "Kenney (www.kenney.nl)",
+  "source": "https://kenney.nl/assets/impact-sounds",
+  "download": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+  "license": "CC0-1.0",
+  "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+  "licenseFile": "License.txt",
+  "retrieved": "2026-10-09",
+  "notes": "130 OGG Vorbis clips (footsteps on 5 surfaces, impacts: punch, soft, wood, metal, glass, plate, bell...). License verified from the License.txt inside the archive."
+}

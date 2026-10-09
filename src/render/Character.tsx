@@ -1,6 +1,7 @@
 import React from "react";
 import { add, clamp, dir, lerp, rotate, scale, sub, v, vlerp, type Vec2 } from "../engine/math";
 import { facingScale, up } from "../engine/rig";
+import type { LimbSmear } from "../engine/runtime";
 import type { CharacterSpec, Joints, Pose } from "../engine/types";
 
 // ---------------------------------------------------------------------------
@@ -129,6 +130,50 @@ const Shoe: React.FC<{ ankle: Vec2; angle: number; s: CharacterSpec; shade: numb
     <g transform={`translate(${r2(ankle.x)} ${r2(ankle.y)}) rotate(${r2(deg(angle))})`}>
       <path d={d} fill={shoe} stroke={s.colors.ink} strokeWidth={s.outline} strokeLinejoin="round" />
       <path d={`M${-0.3 * fl} ${h + 1} L${0.62 * fl} ${h + 1}`} stroke={s.colors.shoeSole} strokeWidth={4} strokeLinecap="round" />
+    </g>
+  );
+};
+
+/**
+ * Smear frame for a fast arm: the swept area of the forearm over the last
+ * ~1-1.5 frames, filled in the sleeve colour, plus tapered speed lines from
+ * the hand. Drawn behind the arm, in the character's local space.
+ */
+const ArmSmear: React.FC<{ sm: LimbSmear; toLocal: (p: Vec2) => Vec2; color: string; skin: string; ink: string; w: number }> = ({
+  sm,
+  toLocal,
+  color,
+  skin,
+  ink,
+  w,
+}) => {
+  const W = sm.wrists.map(toLocal);
+  const E = sm.elbows.map(toLocal);
+  const n = W.length;
+  const sweep = [...W, ...E.slice().reverse()];
+  // tapered hand trail: wide at the hand, thin at the oldest sample
+  const left: Vec2[] = [];
+  const right: Vec2[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = W[Math.max(0, i - 1)];
+    const b = W[Math.min(n - 1, i + 1)];
+    const nn = perp(norm(sub(b, a)));
+    const hw = w * 0.75 * (1 - i / (n - 1)) + 1;
+    left.push(add(W[i], scale(nn, hw)));
+    right.push(sub(W[i], scale(nn, hw)));
+  }
+  const trail = [...left, ...right.reverse()];
+  const lineOff = [-0.55, 0, 0.55];
+  return (
+    <g opacity={r2(sm.k)}>
+      <path d={`${poly(sweep)} Z`} fill={color} opacity={0.55} />
+      <path d={`${poly(trail)} Z`} fill={skin} opacity={0.7} />
+      {lineOff.map((o, i) => {
+        const nn = perp(norm(sub(W[0], W[n - 1])));
+        const a = add(W[n - 1], scale(nn, o * w));
+        const b = add(vlerp(W[n - 1], W[0], 0.7), scale(nn, o * w * 0.8));
+        return <path key={i} d={poly([a, b])} stroke={ink} strokeWidth={3} strokeLinecap="round" opacity={0.45} />;
+      })}
     </g>
   );
 };
@@ -361,9 +406,11 @@ export interface CharacterViewProps {
   glowColor?: string;
   /** Render the head hidden (e.g. covered by a box). */
   hideHead?: boolean;
+  /** Motion smears for fast arms (world space, from limbSmears()). */
+  smears?: Partial<Record<"F" | "B", LimbSmear>>;
 }
 
-export const CharacterView: React.FC<CharacterViewProps> = ({ s, pose, joints, glow = 0, glowColor = "#ffd27a", hideHead }) => {
+export const CharacterView: React.FC<CharacterViewProps> = ({ s, pose, joints, glow = 0, glowColor = "#ffd27a", hideHead, smears }) => {
   const L = joints.local;
   const c = s.colors;
   const ink = c.ink;
@@ -380,14 +427,16 @@ export const CharacterView: React.FC<CharacterViewProps> = ({ s, pose, joints, g
   const aF = armParts(L.shoulderF, L.elbowF, L.wristF);
   const aB = armParts(L.shoulderB, L.elbowB, L.wristB);
 
-  // Hands near the face are drawn in front of the head.
+  // Hands near the face are drawn in front of the head; a far hand at the
+  // back of the head (scratching, rubbing a bump) stays behind it.
   const headR = s.headR;
-  const nearFace = (w: Vec2) => Math.hypot(w.x - L.headC.x, w.y - L.headC.y) < headR * 1.25;
+  const nearFace = (w: Vec2) => Math.hypot(w.x - L.headC.x, w.y - L.headC.y) < headR * 1.25 && w.x > L.headC.x - headR * 0.25;
   const farArmFront = nearFace(L.wristB);
 
   const farSkin = mix(c.skin, ink, 0.12);
   const farArm = (
     <g key="farArm">
+      {smears?.B && <ArmSmear sm={smears.B} toLocal={joints.toLocal} color={c.shirtShade} skin={farSkin} ink={ink} w={s.limbW} />}
       <Limb pts={aB.sleeve} w={s.limbW} color={c.shirtShade} ink={ink} outline={o} />
       <Limb pts={aB.wrist} w={s.limbW * 0.72} color={farSkin} ink={ink} outline={o} />
       <Hand wrist={L.wristB} angle={L.handAngleB} s={s} open={pose.hBopen} point={pose.hBpoint} skin={farSkin} />
@@ -395,6 +444,7 @@ export const CharacterView: React.FC<CharacterViewProps> = ({ s, pose, joints, g
   );
   const nearArm = (
     <g key="nearArm">
+      {smears?.F && <ArmSmear sm={smears.F} toLocal={joints.toLocal} color={c.shirt} skin={c.skin} ink={ink} w={s.limbW} />}
       <Limb pts={aF.sleeve} w={s.limbW} color={c.shirt} ink={ink} outline={o} />
       <Limb pts={aF.wrist} w={s.limbW * 0.72} color={c.skin} ink={ink} outline={o} />
       <path d={poly([vlerp(L.elbowF, L.wristF, 0.56), vlerp(L.elbowF, L.wristF, 0.62)])} stroke={c.shirtShade} strokeWidth={s.limbW + 2} strokeLinecap="butt" />
@@ -414,7 +464,8 @@ export const CharacterView: React.FC<CharacterViewProps> = ({ s, pose, joints, g
   };
 
   // Head transform: local head frame rotated by head angle; squash as ellipse.
-  const headT = `translate(${r2(L.headC.x)} ${r2(L.headC.y)}) rotate(${r2(deg(L.headAngle))})`;
+  // counter-scale keeps the head round while the body narrows during a turn
+  const headT = `translate(${r2(L.headC.x)} ${r2(L.headC.y)}) scale(${r2(1 / Math.abs(sx))} 1) rotate(${r2(deg(L.headAngle))})`;
   const hry = headR * (1 + (sq - 1) * 0.6);
   const hrx = headR * (1 - (sq - 1) * 0.35);
   const ft = clamp(pose.faceTurn, -0.7, 1);

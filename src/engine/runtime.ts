@@ -17,7 +17,7 @@ import {
   vlerp,
   type Vec2,
 } from "./math";
-import { makeTransforms, restPose, solvePose, standHipHeight, up } from "./rig";
+import { blendArmPolar, makeTransforms, restPose, solvePose, standHipHeight, up } from "./rig";
 import type {
   AnchorPart,
   CharacterTrack,
@@ -39,7 +39,12 @@ interface Secondary {
   hairStretch: Float64Array;
   leanExtra: Float64Array;
   headNod: Float64Array;
+  /** World elbow/wrist trajectories (x,y interleaved) from the pre-secondary solve: limb smears. */
+  trail: Record<TrailJoint, Float64Array>;
 }
+
+export const TRAIL_JOINTS = ["elbowF", "wristF", "elbowB", "wristB"] as const;
+export type TrailJoint = (typeof TRAIL_JOINTS)[number];
 
 export interface Runtime {
   def: SceneDef;
@@ -167,6 +172,28 @@ export interface PropFrame {
 
 type CharResolver = (id: string, frame: number) => { pose: Pose; joints: Joints; spec: CharacterSpec };
 
+/** Landing point of a ballistic flight aimed at a (possibly moving) target. */
+const landingPoint = (rt: Runtime, ref: TargetRef, frame: number, resolve: CharResolver, from: Vec2, contact: number): Vec2 => {
+  let p: Vec2;
+  if ("point" in ref) p = v(ref.point[0], ref.point[1]);
+  else if ("prop" in ref) {
+    const prop = rt.def.props.find((q) => q.id === ref.prop);
+    if (!prop) throw new Error(`Unknown prop ${ref.prop}`);
+    const q = evaluateProp(rt, prop, frame, resolve);
+    p = v(q.x + (ref.offset?.[0] ?? 0), q.y + (ref.offset?.[1] ?? 0));
+  } else {
+    const c = resolve(ref.char, frame);
+    const a = anchorPoint(c.spec, c.pose, c.joints, ref.part);
+    p = v(a.x + (ref.offset?.[0] ?? 0), a.y + (ref.offset?.[1] ?? 0));
+  }
+  if (contact > 0) {
+    const d = sub(from, p);
+    const l = Math.hypot(d.x, d.y) || 1;
+    p = add(p, scale(d, contact / l));
+  }
+  return p;
+};
+
 const propStateAt = (
   rt: Runtime,
   prop: PropTrack,
@@ -207,27 +234,29 @@ const propStateAt = (
       : idx > 0
         ? propStateAt(rt, prop, idx - 1, st.from, resolve)
         : { x: st.to[0], y: st.to[1], rot: 0 };
+  let to = v(st.to[0], st.to[1]);
+  if (st.toRef) to = landingPoint(rt, st.toRef, st.from + st.dur, resolve, start, st.contact ?? 0);
   const t = frame - st.from;
   const H = st.peak ?? 80;
   const endRot = st.endRot ?? start.rot + (st.spin ?? 0);
   if (t <= st.dur) {
     const u = t / st.dur;
-    const x = lerp(start.x, st.to[0], u);
-    const y = lerp(start.y, st.to[1], u) - 4 * H * u * (1 - u);
-    const vy = (st.to[1] - start.y) / st.dur - (4 * H * (1 - 2 * u)) / st.dur;
-    return { x, y, rot: lerp(start.rot, endRot, u), vx: (st.to[0] - start.x) / st.dur, vy, airborne: t > 0 && t < st.dur };
+    const x = lerp(start.x, to.x, u);
+    const y = lerp(start.y, to.y, u) - 4 * H * u * (1 - u);
+    const vy = (to.y - start.y) / st.dur - (4 * H * (1 - 2 * u)) / st.dur;
+    return { x, y, rot: lerp(start.rot, endRot, u), vx: (to.x - start.x) / st.dur, vy, airborne: t > 0 && t < st.dur };
   }
   // bounces after landing
   let tt = t - st.dur;
-  let x = st.to[0];
+  let x = to.x;
   let rot = endRot;
-  const dirx = Math.sign(st.to[0] - start.x) || 1;
+  const dirx = Math.sign(to.x - start.x) || 1;
   for (const [h, n] of st.bounces ?? []) {
     if (tt < n) {
       const u = tt / n;
       return {
         x: x + dirx * (st.skid ?? 0) * u,
-        y: st.to[1] - 4 * h * u * (1 - u),
+        y: to.y - 4 * h * u * (1 - u),
         rot: rot + dirx * 0.15 * Math.sin(Math.PI * u) * (h / 30),
         vx: 0,
         vy: 0,
@@ -238,7 +267,7 @@ const propStateAt = (
     x += dirx * (st.skid ?? 0);
     rot = rot + 0;
   }
-  return { x, y: st.to[1], rot, vx: 0, vy: 0, airborne: false };
+  return { x, y: to.y, rot, vx: 0, vy: 0, airborne: false };
 };
 
 export const evaluateProp = (rt: Runtime, prop: PropTrack, frame: number, resolve: CharResolver): PropFrame => {
@@ -382,10 +411,35 @@ const evalLook = (rt: Runtime, tr: CharacterTrack, f: number, pose: Pose): LookC
 // ---------------------------------------------------------------------------
 // Character evaluation
 // ---------------------------------------------------------------------------
-const applyLayer = (pose: Pose, out: PartialPose, w: number, kind: "override" | "additive") => {
+/** Global engine switches (benchmarks/A-B comparisons only; scenes never change these). */
+export const ENGINE_OPTIONS: { armBlend: "hand" | "angle" } = { armBlend: "hand" };
+
+const ARM_CHANNELS = { F: ["aFsh", "aFel"], B: ["aBsh", "aBel"] } as const;
+
+export const applyLayer = (
+  pose: Pose,
+  out: PartialPose,
+  w: number,
+  kind: "override" | "additive",
+  spec?: CharacterSpec,
+  armBlend: "hand" | "angle" = "hand",
+) => {
   if (w <= 0) return;
+  // Arms driven by an override layer blend in hand space (see blendArmPolar).
+  const handled = new Set<string>();
+  if (kind === "override" && spec && armBlend === "hand" && ENGINE_OPTIONS.armBlend === "hand" && w < 1) {
+    for (const [shK, elK] of Object.values(ARM_CHANNELS)) {
+      const sh = out[shK];
+      const el = out[elK];
+      if (sh === undefined || el === undefined || Number.isNaN(sh) || Number.isNaN(el)) continue;
+      const r = blendArmPolar(spec, { sh: pose[shK], el: pose[elK] }, { sh, el }, w);
+      pose[shK] = r.sh;
+      pose[elK] = r.el;
+      handled.add(shK).add(elK);
+    }
+  }
   for (const [k, val] of Object.entries(out)) {
-    if (val === undefined || Number.isNaN(val)) continue;
+    if (val === undefined || Number.isNaN(val) || handled.has(k)) continue;
     const ch = k as PoseChannel;
     pose[ch] = kind === "override" ? lerp(pose[ch], val as number, w) : pose[ch] + (val as number) * w;
   }
@@ -489,6 +543,12 @@ const evaluateRaw = (rt: Runtime, id: string, frame: number): Pose => {
   pose.eyeY = clamp(eyes.eyeY + (ex.face.eyeY ?? 0), -1, 1);
   pose.neck += headLook.pitch * 0.4;
   pose.head += headLook.pitch * 0.6;
+  // Mid-turn the face swings to camera (front view), eyes centred.
+  const turnK = ease.smooth(clamp((1 - Math.abs(pose.facing)) * 1.8, 0, 1));
+  if (turnK > 0) {
+    pose.faceTurn = lerp(pose.faceTurn, 0.02, turnK);
+    pose.eyeX = lerp(pose.eyeX, 0, turnK);
+  }
 
   // Action clips
   const ctxBase = {
@@ -519,7 +579,7 @@ const evaluateRaw = (rt: Runtime, id: string, frame: number): Pose => {
         return anchorPoint(spec, p, j, part);
       },
     };
-    applyLayer(pose, clip.fn(ctx), w, clip.kind);
+    applyLayer(pose, clip.fn(ctx), w, clip.kind, spec, clip.armBlend);
   }
 
   pose.blink = Math.max(pose.blink, blinkAt(rt, id, f));
@@ -538,6 +598,7 @@ const simulateSecondary = (rt: Runtime, id: string): Secondary => {
     hairStretch: new Float64Array(N),
     leanExtra: new Float64Array(N),
     headNod: new Float64Array(N),
+    trail: { elbowF: new Float64Array(N * 2), wristF: new Float64Array(N * 2), elbowB: new Float64Array(N * 2), wristB: new Float64Array(N * 2) },
   };
   const loco = rt.bakes.get(id)!.frames;
   const hairLen = spec.hair === "tuft" ? 46 : 40;
@@ -553,6 +614,10 @@ const simulateSecondary = (rt: Runtime, id: string): Secondary => {
   for (let f = 0; f < N; f++) {
     const pose = evaluateRaw(rt, id, f);
     const { joints } = solvePose(spec, pose);
+    for (const k of TRAIL_JOINTS) {
+      out.trail[k][f * 2] = joints[k].x;
+      out.trail[k][f * 2 + 1] = joints[k].y;
+    }
     const sgn = pose.facing >= 0 ? 1 : -1;
     const anchor = anchorPoint(spec, pose, joints, "headTop");
     const restDirLocal = up(joints.local.headAngle + (spec.hair === "tuft" ? -0.15 : 0.55));
@@ -596,7 +661,7 @@ const simulateSecondary = (rt: Runtime, id: string): Secondary => {
   return out;
 };
 
-const secondaryFor = (rt: Runtime, id: string) => {
+export const secondaryFor = (rt: Runtime, id: string) => {
   let s = rt.secondary.get(id);
   if (!s) {
     s = simulateSecondary(rt, id);
@@ -651,3 +716,58 @@ export const evaluateScene = (def: SceneDef, frame: number): SceneFrame => {
 
 export const vlerpExport = vlerp;
 export type { AnchorPart };
+
+// ---------------------------------------------------------------------------
+// Limb smears: fast arms leave a swept "smear" shape (classic cartoon motion
+// blur on 1-2 frames) instead of teleporting between frames. Past positions
+// come from the cached trajectory, re-anchored to the final joints so the
+// smear stays attached to the arm.
+// ---------------------------------------------------------------------------
+export interface LimbSmear {
+  /** 0..1 strength from wrist speed. */
+  k: number;
+  /** World points, newest first: [now, ..., oldest]. */
+  elbows: Vec2[];
+  wrists: Vec2[];
+}
+
+export const SMEAR_MIN_SPEED = 42;
+export const SMEAR_FULL_SPEED = 110;
+
+export const limbSmears = (rt: Runtime, id: string, frame: number, joints: Joints): Partial<Record<"F" | "B", LimbSmear>> => {
+  const f = frameOf(rt, frame);
+  if (f < 2) return {};
+  const loco = rt.bakes.get(id)!.frames;
+  if (Math.sign(loco[f].facing) !== Math.sign(loco[f - 1].facing) || Math.abs(loco[f].facing) < 1) return {};
+  const tr = secondaryFor(rt, id).trail;
+  const at = (k: TrailJoint, t: number) => {
+    const i = Math.floor(t);
+    const u = t - i;
+    const a = v(tr[k][i * 2], tr[k][i * 2 + 1]);
+    if (u === 0) return a; // exact sample (also avoids reading past the last frame)
+    const b = v(tr[k][(i + 1) * 2], tr[k][(i + 1) * 2 + 1]);
+    return vlerp(a, b, u);
+  };
+  const out: Partial<Record<"F" | "B", LimbSmear>> = {};
+  for (const side of ["F", "B"] as const) {
+    const wk = `wrist${side}` as TrailJoint;
+    const ek = `elbow${side}` as TrailJoint;
+    const speed = Math.hypot(at(wk, f).x - at(wk, f - 1).x, at(wk, f).y - at(wk, f - 1).y);
+    if (speed < SMEAR_MIN_SPEED) continue;
+    const k = clamp((speed - SMEAR_MIN_SPEED) / (SMEAR_FULL_SPEED - SMEAR_MIN_SPEED), 0, 1);
+    // longer smears for faster arms: up to 1.5 frames back
+    const span = lerp(0.8, 1.5, k);
+    const n = 5;
+    const dW = sub(joints[wk], at(wk, f));
+    const dE = sub(joints[ek], at(ek, f));
+    const wrists: Vec2[] = [];
+    const elbows: Vec2[] = [];
+    for (let i = 0; i <= n; i++) {
+      const t = f - (span * i) / n;
+      wrists.push(add(at(wk, t), dW));
+      elbows.push(add(at(ek, t), dE));
+    }
+    out[side] = { k: 0.35 + 0.65 * k, wrists, elbows };
+  }
+  return out;
+};
