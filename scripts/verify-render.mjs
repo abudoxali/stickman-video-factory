@@ -3,8 +3,10 @@
 //
 // Usage: node scripts/verify-render.mjs <video.mp4> [--compare other.mp4]
 //        [--width 1080 --height 1920 --fps 30 --frames 720]
+//        [--scene <sceneId>]   audio: expect a non-silent track and check that
+//                              every authored cue starts an audible onset at its frame
 // Writes out/qa/render-report.json; exits non-zero when a hard check fails.
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 
 const args = process.argv.slice(2);
@@ -94,15 +96,62 @@ if (other) {
   repro = { framesA: A.length, framesB: B.length, identicalFrames: A.length - mismatched.length, firstMismatches: mismatched.slice(0, 10) };
 }
 
+// 5) audio: presence, level, cue sync (onset energy right after each cue frame)
+let audio = null;
+const scene = opt("scene", null);
+const aProbe = JSON.parse(
+  run("ffprobe", ["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=codec_name,sample_rate,channels,duration", "-of", "json", video]).toString(),
+);
+const ast = aProbe.streams?.[0];
+if (ast) {
+  // volumedetect reports on stderr
+  const vd = spawnSync("ffmpeg", ["-v", "info", "-i", video, "-map", "0:a:0", "-af", "volumedetect", "-f", "null", "-"], { maxBuffer: 1 << 30 });
+  const txt = String(vd.stderr);
+  audio = {
+    codec: ast.codec_name,
+    sampleRate: Number(ast.sample_rate),
+    channels: ast.channels,
+    duration: Number(ast.duration),
+    maxVolumeDb: Number(/max_volume: (-?[\d.]+) dB/.exec(txt)?.[1] ?? NaN),
+    meanVolumeDb: Number(/mean_volume: (-?[\d.]+) dB/.exec(txt)?.[1] ?? NaN),
+  };
+}
+if (scene) {
+  const cuesJson = execFileSync("npx", ["tsx", "scripts/audio-cues.ts", scene], { shell: process.platform === "win32" }).toString();
+  const { cues, fps } = JSON.parse(cuesJson.slice(cuesJson.indexOf("{")));
+  const SR = 8000;
+  const pcm = ast ? run("ffmpeg", ["-v", "error", "-i", video, "-map", "0:a:0", "-ac", "1", "-ar", String(SR), "-f", "s16le", "-"]) : Buffer.alloc(0);
+  const samples = new Int16Array(pcm.buffer, pcm.byteOffset, Math.floor(pcm.length / 2));
+  const rms = (t0, t1) => {
+    const a = Math.max(0, Math.floor(t0 * SR));
+    const b = Math.min(samples.length, Math.floor(t1 * SR));
+    let e = 0;
+    for (let i = a; i < b; i++) e += samples[i] * samples[i];
+    return Math.sqrt(e / Math.max(1, b - a));
+  };
+  const authored = cues.filter((c) => c.source === "cue");
+  const checked = authored.map((c) => {
+    const t = c.at / fps;
+    const before = rms(t - 0.12, t - 0.01);
+    const after = rms(t, t + 0.09);
+    return { at: c.at, label: c.label, before: Math.round(before), after: Math.round(after), onset: after > Math.max(60, before * 1.25) };
+  });
+  audio = { ...(audio ?? {}), cues: cues.length, authoredCues: authored.length, onsetsDetected: checked.filter((c) => c.onset).length, missed: checked.filter((c) => !c.onset) };
+}
+
 const hard = [];
 if (meta.width !== expect.width || meta.height !== expect.height) hard.push(`resolution ${meta.width}x${meta.height} != ${expect.width}x${expect.height}`);
 if (Math.abs(meta.fps - expect.fps) > 0.01) hard.push(`fps ${meta.fps} != ${expect.fps}`);
 if (meta.frames !== expect.frames) hard.push(`frames ${meta.frames} != ${expect.frames}`);
 if (Math.abs(meta.duration - expect.frames / expect.fps) > 0.1) hard.push(`duration ${meta.duration}s`);
 if (decodeErrors) hard.push(`decode errors: ${decodeErrors.slice(0, 300)}`);
+if (scene && !ast) hard.push("expected an audio track (scene has sound) but none found");
+if (scene && audio && !(audio.maxVolumeDb > -60)) hard.push(`audio is silent (max ${audio.maxVolumeDb} dB)`);
+if (scene && audio && audio.authoredCues && audio.onsetsDetected < Math.ceil(audio.authoredCues * 0.8))
+  hard.push(`audio cues out of sync: ${audio.onsetsDetected}/${audio.authoredCues} onsets detected`);
 if (repro && (repro.framesA !== repro.framesB || repro.identicalFrames !== repro.framesA)) hard.push(`not reproducible: ${JSON.stringify(repro)}`);
 
-const report = { video, meta, decodeOk: !decodeErrors, motion: { perSecond, frozenTransitions: frozen, longestFreezeFrames: longestFreeze }, repro, hardFailures: hard };
+const report = { video, meta, audio, decodeOk: !decodeErrors, motion: { perSecond, frozenTransitions: frozen, longestFreezeFrames: longestFreeze }, repro, hardFailures: hard };
 fs.mkdirSync("out/qa", { recursive: true });
 fs.writeFileSync("out/qa/render-report.json", JSON.stringify(report, null, 2));
 console.log(`Render verification: ${video}`);
@@ -110,6 +159,12 @@ console.log(`  ${meta.codec}/${meta.pixFmt} ${meta.width}x${meta.height} @${meta
 console.log(`  decode: ${decodeErrors ? "ERRORS" : "ok"}`);
 console.log(`  motion energy/sec: ${perSecond.join(" ")}`);
 console.log(`  frozen transitions: ${frozen}/${diffs.length}, longest freeze: ${longestFreeze} frames`);
+if (audio)
+  console.log(
+    `  audio: ${audio.codec ?? "none"} ${audio.sampleRate ?? ""}Hz ${audio.channels ?? ""}ch, peak ${audio.maxVolumeDb} dB, mean ${audio.meanVolumeDb} dB` +
+      (audio.authoredCues ? `, cue onsets ${audio.onsetsDetected}/${audio.authoredCues} (${audio.cues} incl. auto footsteps/landings)` : ""),
+  );
+else console.log("  audio: none");
 if (repro) console.log(`  reproducibility: ${repro.identicalFrames}/${repro.framesA} frames bit-identical`);
 for (const h of hard) console.log(`  FAIL ${h}`);
 console.log(hard.length ? "RESULT: FAIL" : "RESULT: PASS");
