@@ -64,3 +64,23 @@ description: Author and combine motion for the cartoon rig — locomotion moves 
   before the attachment switch.
 - Overlapping moves: the planner delays a move that starts before the
   previous one ends and records a warning (printed by qa-motion/probe).
+
+## New clips and engine behaviour (BONK!)
+- `throw` — params `side, target, release (frame offset), style ("underhand" |
+  "overhand"), power`. Wind-up with weight back + tension tremble, accelerating
+  whip (ease-in) to the release frame, follow-through past the target, settle;
+  other arm counter-swings. Put the prop's ballistic state `from` exactly at
+  `start + release`.
+- `catch` — params `target (catch point), at (contact offset), width`. Hands
+  open toward the point, widen just before contact, then absorb: hands recoil to
+  the chest, lean back, spring settle.
+- `rubHead` — hand circles at the back/top of the head (use the far arm).
+- **Arm blending is hand-space by default**: override layers blend arms in
+  shoulder-centred polar coordinates (direction + reach), so the hand travels on
+  an arc and the elbow never unfolds/refolds mid-blend. Opt out per clip with
+  `armBlend: "angle"`. Benchmark: `npm run bench` (A/B of both modes).
+- **Smears**: wrists faster than 42 px/frame get a swept smear frame
+  automatically (`SceneDef.limbSmears: false` disables). Fast whips are fine —
+  the pop warnings in `npm run qa` at deliberate snaps are expected.
+- **Turns** pass through a front view: body narrows to 34 % (not a sliver), the
+  head stays round and the face swings to camera mid-turn.

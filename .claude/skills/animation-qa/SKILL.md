@@ -23,8 +23,8 @@ per second (`static seconds` must be 0 for active beats).
 ## 2. Sequential frame inspection
 ```
 npx remotion render <Comp> out/qa/low.mp4 --scale=0.25
-scripts/contact-sheet.sh out/qa/low.mp4 out/qa/sheets 6          # whole film
-scripts/contact-sheet.sh out/qa/low.mp4 out/qa/sheets 2 6 4 300  # a beat, every 2nd frame
+node scripts/contact-sheet.mjs out/qa/low.mp4 out/qa/sheets 6          # whole film
+node scripts/contact-sheet.mjs out/qa/low.mp4 out/qa/sheets 2 6 4 300  # a beat, every 2nd frame
 node scripts/stills.mjs <Comp> out/qa/stills 0.5 262 290 342      # full-res spot checks
 ```
 Read sheets in order. Look for: characters present, readable silhouettes,
@@ -55,3 +55,12 @@ For each issue: frame range · symptom · cause (layer/channel) · concrete fix
 | Character missing | draw order / hidden ranges | check first sheet |
 
 Never declare success from a typecheck or a single frame.
+
+## Additional automated checks
+- `npm test` renders every 3rd frame (plus first/last) of every scene to SVG
+  markup and fails on any `NaN` (React drops such elements silently in
+  Chromium — this caught a last-frame smear bug).
+- `npm run qa:all` runs engine QA on every scene; `npm run bench` A/Bs arm
+  blending; `node scripts/bench-engines.mjs` times Remotion SVG / PixiJS (GPU and
+  SwiftShader) / Godot / Blender on the same 120-frame workload.
+- Audio sync: `npm run verify` (see video-rendering) checks cue onsets.

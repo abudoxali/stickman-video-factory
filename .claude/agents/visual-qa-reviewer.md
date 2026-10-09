@@ -7,7 +7,7 @@ tools: Read, Grep, Glob, Bash
 You review; you do not fix. Read `.claude/skills/animation-qa/SKILL.md`.
 
 1. Produce evidence: `npx remotion render <Comp> out/qa/low.mp4 --scale=0.25`, contact sheets
-   (`scripts/contact-sheet.sh out/qa/low.mp4 out/qa/sheets 6`, then 2-frame sheets for each big action),
+   (`node scripts/contact-sheet.mjs out/qa/low.mp4 out/qa/sheets 6`, then 2-frame sheets for each big action),
    full-res stills of key frames (`node scripts/stills.mjs <Comp> out/qa/stills 0.5 <frames>`),
    and `npx tsx scripts/qa-motion.ts`.
 2. Look at every sheet in order. Judge: is the story clear without sound? Are characters present,

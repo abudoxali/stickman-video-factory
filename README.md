@@ -5,28 +5,27 @@ characters driven by a hierarchical rig, reusable motion clips and a
 choreography system, composed and rendered deterministically with
 [Remotion](https://www.remotion.dev).
 
-The first production is **THE SURPRISE** — a 24-second vertical (1080×1920,
-30 fps) physical-comedy short told entirely through animation: no narration,
-no captions.
+Productions (vertical 1080×1920, 30 fps, told entirely through animation):
 
-> Pip wanders in whistling, double-takes at a mysterious gift, tiptoes over
-> and peeks under the glowing lid — just as Bo bursts through the door with a
-> party horn. Pip leaps in fright, swats the box, and it flips through the air
-> onto Bo's head. When Bo finally pulls it off, the birthday cupcake is
-> sitting on his head, candle still lit. Pip laughs, blows it out, hands Bo
-> the horn — toot, confetti, grins to camera.
+- **BONK!** (19 s, with sound) — a game of catch in the park goes wrong. Pip
+  winds up a huge throw, the ball sails over Bo, smacks the tree and ricochets
+  onto Bo's head; Bo topples, Pip doubles up laughing — until Bo picks up the
+  ball and lobs it right off Pip's head. Both crack up.
+- **THE SURPRISE** (24 s) — a birthday gift, a door burst, a box on a head.
 
-## Quick start
+## Quick start (Windows, macOS, Linux)
 ```bash
 npm install
-npm run dev              # Remotion Studio: TheSurprise, MotionLibrary, RigLab, PixiBench
-npm test                 # rig / IK / locomotion / determinism tests
-npm run qa               # engine-level motion QA for the demo
-npm run render           # deterministic MP4 -> out/the-surprise.mp4
-npm run verify           # ffprobe + decode + motion-energy checks
+npm run dev              # Remotion Studio (live preview with sound): Bonk, TheSurprise, ...
+npm test                 # rig / IK / locomotion / audio / asset-licence / markup tests
+npm run qa -- bonk       # engine-level motion QA for a scene
+npm run render:preview   # quarter-res MP4 with sound in ~30 s -> out/qa/bonk-low.mp4
+npm run render           # deterministic full-res MP4 with sound -> out/bonk.mp4
+npm run verify           # ffprobe + decode + motion energy + audio-sync checks
 ```
-Requires Node 20+, FFmpeg/ffprobe for verification scripts. Rendering uses
-Remotion's bundled headless Chromium.
+Requires Node 20+ and FFmpeg/ffprobe on PATH. Rendering uses Remotion's
+bundled headless Chromium. Optional local engines: Godot 4.5+ (`npm run
+godot:render`, `npm run godot:editor`) and Blender 5.x (`npm run blender:render`).
 
 A second composition, **MotionLibrary** (29 s, labelled), is a test reel
 for the motion vocabulary the demo doesn't use (run, sit/stand, fall/get-up,
@@ -64,8 +63,8 @@ Scenes are data in `src/scenes/*.ts`. A character track looks like:
   look: [{ at: 91, target: { prop: "box" }, blend: 3 }],
 }
 ```
-Motion vocabulary: walk / tiptoe / stagger / run, turn, jump & land, step,
-sit / standUp, fall / getUp; clips point, reach, explain, talk, think, react,
+Motion vocabulary: walk / tiptoe / stagger / run, turn (through a front view),
+jump & land, step, sit / standUp, fall / getUp; clips throw, catch, rubHead, point, reach, explain, talk, think, react,
 celebrate, armsUp, panic, duck, push, pull, pickUp, handOver, hold, holdPath,
 coverMouth, laugh, blow, hornBlow, shrug, wave, sneak, lookAround, flail and
 additive dazedSway, giggle, nod, offset; 19 expressions (each with a body
@@ -76,14 +75,26 @@ posture). See `.claude/skills/motion-choreography/SKILL.md`.
 |---|---|
 | `npm test` | IK accuracy, limb lengths constant, planted feet don't slide, determinism |
 | `npm run qa` | every frame: limb error, foot slip, IK miss, pops, head interpenetration, prop jumps, motion per second, event timeline |
-| `scripts/contact-sheet.sh` | sequential frame sheets for visual review |
+| `scripts/contact-sheet.mjs` | sequential frame sheets for visual review |
 | `scripts/stills.mjs` | full-res stills of chosen frames |
 | `scripts/verify-render.mjs` | resolution/fps/frames/duration, full decode, motion energy, frame-MD5 reproducibility |
+
+## Assets and other engines
+- `public/assets/`: Kenney Impact Sounds + Interface Sounds (CC0), each with
+  `asset.json` (source, author, license, date) and its license file; addressed
+  as `"impact/impactPunch_heavy"` etc. via `src/assets/manifest.json`.
+- `godot/cutout-lab`: Kenney Modular Characters (CC0) rigged on Skeleton2D
+  bones with AnimationTree blending; Movie Maker renders transparent PNG
+  sequences that Remotion composites (`GodotBridge` composition). Includes the
+  godot-mcp editor add-on (localhost) — see `.mcp.json`.
+- `blender/gp_rig_lab.py`: Grease Pencil v3 stickman deformed by an armature,
+  rendered headless to transparent PNGs.
 
 ## Claude Code setup
 Project skills in `.claude/skills/` (6 studio skills + 8 official Remotion
 skills), subagents in `.claude/agents/`, plugins `context7` and
-`commit-commands` enabled in `.claude/settings.json`, and a typecheck hook.
+`commit-commands` enabled in `.claude/settings.json`, a cross-platform
+typecheck hook (Node), and the `godot` MCP server in `.mcp.json`.
 `CLAUDE.md` is the project brief; `STATUS.md` is the single status file.
 
 ## Project status
