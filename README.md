@@ -7,6 +7,9 @@ choreography system, composed and rendered deterministically with
 
 Productions (vertical 1080×1920, 30 fps, told entirely through animation):
 
+- **SHOW-OFF** (20 s, with sound) — Bo cannot reach a prized apple, Pip turns
+  the rescue into a performance, and an off-screen ricochet supplies the
+  punchline. Uses the Blender-authored reusable `warmUp` clip.
 - **BONK!** (19 s, with sound) — a game of catch in the park goes wrong. Pip
   winds up a huge throw, the ball sails over Bo, smacks the tree and ricochets
   onto Bo's head; Bo topples, Pip doubles up laughing — until Bo picks up the
@@ -18,7 +21,12 @@ Productions (vertical 1080×1920, 30 fps, told entirely through animation):
 npm install
 npm run dev              # Remotion Studio (live preview with sound): Bonk, TheSurprise, ...
 npm test                 # rig / IK / locomotion / audio / asset-licence / markup tests
-npm run qa -- bonk       # engine-level motion QA for a scene
+npm run scene:list       # catalogued compositions and SceneDef ids
+npm run scene:validate   # schema + reference + timeline validation for every scene
+npm run qa:all           # engine-level motion QA for every catalogued scene
+npm run scene:preview -- show-off out/qa/show-off-low.mp4
+npm run scene:render -- show-off out/show-off-final.mp4
+npm run scene:verify -- show-off out/show-off-final.mp4
 npm run render:preview   # quarter-res MP4 with sound in ~30 s -> out/qa/bonk-low.mp4
 npm run render           # deterministic full-res MP4 with sound -> out/bonk.mp4
 npm run verify           # ffprobe + decode + motion energy + audio-sync checks
@@ -50,7 +58,24 @@ Every frame is a pure function of the frame number, so frames render in any
 order, in parallel, and reproduce bit-exactly.
 
 ### Authoring a scene
-Scenes are data in `src/scenes/*.ts`. A character track looks like:
+Scenes are declarative data in `src/scenes/*.ts`; `src/scenes/index.ts` is the
+single catalog used by Studio, validation, QA and rendering. Scaffold a new
+vertical production without touching the engine:
+
+```bash
+npm run scene:new -- my-story
+# edit src/scenes/myStory.ts, then add one catalog entry in src/scenes/index.ts
+npm run scene:validate
+npm run scene:preview -- my-story out/qa/my-story-low.mp4
+npm run scene:render -- my-story out/my-story.mp4
+npm run scene:verify -- my-story out/my-story.mp4
+```
+
+The validator rejects invalid dimensions/timelines, duplicate ids, unknown
+clips/expressions/sounds/references, cyclic prop references and empty camera
+shots. `FactoryExample` is a complete independent scene made only from the
+existing characters, park, clips, ball physics, camera, FX and audio. A
+character track looks like:
 ```ts
 {
   id: "pip", spec: PIP, x: -90, facing: 1,
@@ -89,6 +114,10 @@ posture). See `.claude/skills/motion-choreography/SKILL.md`.
   godot-mcp editor add-on (localhost) — see `.mcp.json`.
 - `blender/gp_rig_lab.py`: Grease Pencil v3 stickman deformed by an armature,
   rendered headless to transparent PNGs.
+- `blender/clips/warm_up.py` + `scripts/blender-clips.mjs`: editable Blender
+  action → reusable JSON motion clip. Run `npm run blender:clip:export` after
+  editing `out/blender/clip_lab.blend`, or `npm run blender:clip:rebuild` to
+  rebuild the authored action and export it.
 
 ## Claude Code setup
 Project skills in `.claude/skills/` (6 studio skills + 8 official Remotion

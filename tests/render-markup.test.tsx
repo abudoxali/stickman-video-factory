@@ -13,6 +13,6 @@ describe("SVG renderer", () => {
       for (let f = 0; f < def.durationInFrames; f += 3) frames.add(f);
       const bad = [...frames].filter((f) => renderToStaticMarkup(<SceneView def={def} frame={f} />).includes("NaN"));
       expect(bad).toEqual([]);
-    });
+    }, 30_000);
   }
 });

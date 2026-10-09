@@ -15,6 +15,8 @@ import {
   vlerp,
   type Vec2,
 } from "./math";
+import warmUp from "../clips/warmUp.json";
+import { keyedClip, type KeyedClipData } from "./keyedClips";
 import { ELBOW_POLE, legLength, reachAngles, solvePose } from "./rig";
 import type { AnchorPart, TargetRef } from "./scene";
 import type { CharacterSpec, PartialPose, Pose } from "./types";
@@ -38,6 +40,8 @@ export interface ClipCtx {
   fwd: 1 | -1;
   params: Record<string, unknown>;
   target: (ref: TargetRef) => Vec2;
+  /** Target as it was/will be at another frame (e.g. freeze a grab point before the prop attaches to the hand). */
+  targetAt: (ref: TargetRef, frame: number) => Vec2;
   self: (part: AnchorPart | "shoulderF" | "shoulderB", pose?: Pose) => Vec2;
 }
 
@@ -356,7 +360,10 @@ export const CLIPS: Record<string, Clip> = {
     description: "Bend down (pelvis lowers, spine folds), grab a floor target, rise to a carry position.",
     fn: (c) => {
       const side = sideOf(c.params.side);
-      const tgt = c.target(c.params.target as TargetRef);
+      // The grab point is frozen at the grab moment: once the prop is attached
+      // to this hand, chasing its live position would feed back into the IK.
+      const grabFrame = c.frame - c.t + Math.round(c.dur * 0.45);
+      const tgt = c.targetAt(c.params.target as TargetRef, Math.min(c.frame, grabFrame));
       const down = progress(c.u, 0, 0.42, ease.inOutCubic);
       const rise = progress(c.u, 0.55, 1, ease.inOutCubic);
       const k = down * (1 - rise);
@@ -751,6 +758,95 @@ export const CLIPS: Record<string, Clip> = {
     },
   },
 
+  eat: {
+    kind: "override",
+    description:
+      "Bring the held food to the mouth and take bites: mouth opens wide in anticipation, snaps shut on each bite frame (head dips into it, hand tears away and recoils), then happy chewing. params: side, bites (frame offsets, default [10]), reach (px forward from mouth to hand), drop (px below the mouth), chew (0..1 chewing after the last bite).",
+    fn: (c) => {
+      const side = sideOf(c.params.side);
+      const bites = (c.params.bites as number[] | undefined) ?? [10];
+      const reachPx = Number(c.params.reach ?? 46);
+      const drop = Number(c.params.drop ?? 12);
+      // nearest bite around now: anticipation (open) before, snap + tear after
+      let open = 0;
+      let tear = 0;
+      let dip = 0;
+      let approach = 0;
+      for (const b of bites) {
+        const d = c.t - b;
+        if (d < 0 && d >= -5) open = Math.max(open, ease.outQuad((d + 5) / 5));
+        // the food comes to the open mouth, then the jaw snaps shut on it
+        if (d < 0 && d >= -7) approach = Math.max(approach, ease.inOutSine((d + 7) / 7));
+        if (d >= 0 && d < 3) approach = Math.max(approach, 1 - d / 3);
+        if (d >= 0 && d < 14) {
+          tear = Math.max(tear, Math.exp(-d / 4) * Math.sin(Math.min(1, d / 2) * Math.PI * 0.5));
+          dip = Math.max(dip, Math.exp(-d / 3));
+        }
+        if (d < 0 && d >= -5) dip = Math.max(dip, -0.4 * ((d + 5) / 5));
+      }
+      const last = bites[bites.length - 1];
+      const chewing = c.t > last + 2 ? Number(c.params.chew ?? 1) : 0;
+      const chew = chewing * (0.5 + 0.5 * Math.sin(((c.t - last) / 6.5) * 2 * Math.PI));
+      const raise = progress(c.t, 0, Math.max(4, bites[0] - 4), ease.inOutCubic);
+      // hand holds the food just in front of the mouth; tears away on each bite
+      // Bites happen in profile: the face turns so the mouth reaches the head's
+      // silhouette edge and the food only overlaps the mouth, never the face.
+      const prof = Math.max(approach, 0.6 * Math.max(0, 1 - Math.abs(tear - 0.5) * 2) * (tear > 0 ? 1 : 0));
+      const mouthP = c.self("mouth", { ...c.pose, faceTurn: lerp(c.pose.faceTurn, 0.98, prof) });
+      const hold = add(mouthP, v(c.fwd * (reachPx - 8 * approach + 22 * tear), drop - 6 * approach + 30 * tear));
+      const start = c.self(side === "F" ? "handF" : "handB");
+      const goal = vlerp(start, hold, raise);
+      const ik = reachAngles(c.spec, c.pose, side, goal);
+      return {
+        ...arm(side, ik.sh, ik.el, -0.5),
+        ...hand(side, 0.15),
+        faceTurn: lerp(c.pose.faceTurn, 0.98, prof),
+        eyeX: lerp(c.pose.eyeX, 0.6, prof),
+        neck: c.pose.neck + 0.12 * dip + 0.05 * raise,
+        head: c.pose.head + 0.14 * dip - 0.04 * chew,
+        lean: c.pose.lean + 0.03 * dip,
+        mouthOpen: Math.max(1.05 * open, 0.12 + 0.22 * chew),
+        mouthRound: 0.2 * open,
+        mouthW: 1 - 0.2 * chew,
+        teeth: open > 0.2 ? 1 : 0,
+        puff: c.pose.puff + 0.45 * chewing,
+        mouthX: 0.18 * Math.sin(((c.t - last) / 6.5) * 2 * Math.PI) * chewing,
+        squash: 1 - 0.035 * dip,
+      };
+    },
+  },
+
+  hit: {
+    kind: "override",
+    description:
+      "Physical impact reaction from a direction: the hit part snaps away from the impact (head whip / body squash), knees buckle, arms fling out and dangle, then a damped spring settles back. params: from ('top' | 'front' | 'back'), strength.",
+    fn: (c) => {
+      const k = Number(c.params.strength ?? 1);
+      const from = String(c.params.from ?? "top");
+      const s = springStep(c.t / 30, 2.2, 0.32); // 0 -> overshoot -> 1
+      const imp = Math.exp(-c.t / 5); // sharp impulse
+      const a = (1 - s * 0.85) * k * (c.t > 0 ? 1 : 0) + imp * 0.3 * k;
+      const fling = progress(c.t, 0, 3, ease.outQuad) * (1 - progress(c.t, 6, 20, ease.inOutSine));
+      const dirFwd = from === "front" ? -1 : from === "back" ? 1 : 0;
+      const top = from === "top" ? 1 : 0.35;
+      return {
+        // vertical impact: squash + buckle; horizontal: whip away from the hit
+        squash: 1 - 0.14 * a * top,
+        hipY: c.pose.hipY - 34 * a * top,
+        neck: c.pose.neck + (0.22 * top + 0.3 * dirFwd) * a,
+        head: c.pose.head + (0.2 * top + 0.35 * dirFwd) * a,
+        lean: c.pose.lean + (0.08 * top + 0.22 * dirFwd) * a,
+        shrug: c.pose.shrug + 14 * fling * k,
+        aFsh: lerp(c.pose.aFsh, 1.35 + 0.4 * dirFwd, fling * k),
+        aFel: lerp(c.pose.aFel, 0.35, fling),
+        aBsh: lerp(c.pose.aBsh, 1.05 + 0.4 * dirFwd, fling * k),
+        aBel: lerp(c.pose.aBel, 0.4, fling),
+        hFopen: 1,
+        hBopen: 1,
+      };
+    },
+  },
+
   offset: {
     kind: "additive",
     description: "Generic additive pose offset (params: any pose channels). With long blend-in it makes a slow 'creep' / moving hold.",
@@ -767,6 +863,13 @@ export const CLIPS: Record<string, Clip> = {
     fn: (c) => ({ head: 0.12 * Math.max(0, osc(c.t, 14)), neck: 0.05 * Math.max(0, osc(c.t, 14, -0.1)) }),
   },
 };
+
+/**
+ * Externally authored clips (Blender -> blender/clips/export_clip.py -> JSON).
+ * Each JSON in src/clips becomes a regular named clip.
+ */
+export const KEYED_CLIPS: Record<string, KeyedClipData> = { warmUp: warmUp as KeyedClipData };
+for (const [name, data] of Object.entries(KEYED_CLIPS)) CLIPS[name] = keyedClip(data);
 
 export const CLIP_NAMES = Object.keys(CLIPS);
 

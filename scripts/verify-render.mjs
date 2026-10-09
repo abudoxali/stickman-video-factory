@@ -5,9 +5,10 @@
 //        [--width 1080 --height 1920 --fps 30 --frames 720]
 //        [--scene <sceneId>]   audio: expect a non-silent track and check that
 //                              every authored cue starts an audible onset at its frame
-// Writes out/qa/render-report.json; exits non-zero when a hard check fails.
+// Writes a scene/output-specific report; exits non-zero when a hard check fails.
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import path from "node:path";
 
 const args = process.argv.slice(2);
 const video = args[0];
@@ -25,6 +26,7 @@ const expect = {
   fps: Number(opt("fps", 30)),
   frames: Number(opt("frames", 720)),
 };
+const reportPath = opt("report", `out/qa/render-report-${video.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "")}.json`);
 
 const run = (cmd, a, opts = {}) => execFileSync(cmd, a, { maxBuffer: 1 << 30, ...opts });
 
@@ -152,8 +154,8 @@ if (scene && audio && audio.authoredCues && audio.onsetsDetected < Math.ceil(aud
 if (repro && (repro.framesA !== repro.framesB || repro.identicalFrames !== repro.framesA)) hard.push(`not reproducible: ${JSON.stringify(repro)}`);
 
 const report = { video, meta, audio, decodeOk: !decodeErrors, motion: { perSecond, frozenTransitions: frozen, longestFreezeFrames: longestFreeze }, repro, hardFailures: hard };
-fs.mkdirSync("out/qa", { recursive: true });
-fs.writeFileSync("out/qa/render-report.json", JSON.stringify(report, null, 2));
+fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
 console.log(`Render verification: ${video}`);
 console.log(`  ${meta.codec}/${meta.pixFmt} ${meta.width}x${meta.height} @${meta.fps}fps, ${meta.frames} frames, ${meta.duration.toFixed(2)}s, ${(meta.sizeBytes / 1e6).toFixed(1)} MB`);
 console.log(`  decode: ${decodeErrors ? "ERRORS" : "ok"}`);

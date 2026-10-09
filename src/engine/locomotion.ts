@@ -431,6 +431,12 @@ export const bakeLocomotion = (
         rot: 0.6 * (1 - u) + 0.3 * tuck,
         plant: 0,
       };
+      // push-off rolls onto the toes: keep the rotated sole above the floor
+      for (const ft of [f.F, f.B]) {
+        const toe = rotate(v(0.7 * s.footLen, s.ankleH), ft.rot);
+        const heel = rotate(v(-0.3 * s.footLen, s.ankleH), ft.rot);
+        ft.y = Math.min(ft.y, floorY - Math.max(toe.y, heel.y));
+      }
       f.hipDelta = -depth * Math.max(0, 1 - u * 4) + 4;
       f.squash = 1 + 0.14 * Math.sin(Math.PI * clamp01(u * 2.2)) * (u < 0.45 ? 1 : 0) + 0.04 * reach;
       f.lean = 0.22 * Math.max(0, 1 - u * 3) - 0.08 * Math.sin(Math.PI * u);

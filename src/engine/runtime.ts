@@ -557,6 +557,7 @@ const evaluateRaw = (rt: Runtime, id: string, frame: number): Pose => {
     loco,
     fwd,
     target: (ref: TargetRef) => resolveTarget(rt, ref, f, { id, spec, pose }),
+    targetAt: (ref: TargetRef, at: number) => resolveTarget(rt, ref, frameOf(rt, at)),
   };
   for (const a of tr.actions) {
     const out = a.out ?? 8;

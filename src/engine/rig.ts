@@ -93,6 +93,7 @@ export const restPose = (s: CharacterSpec, x = 0, floorY = 0, facing = 1): Pose 
   puff: 0,
   sweat: 0,
   crossEye: 0,
+  shine: 0,
   hairSwing: 0,
   hairStretch: 1,
 });

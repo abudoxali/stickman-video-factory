@@ -128,7 +128,7 @@ export interface PropTrack {
   id: string;
   kind: string;
   states: PropState[];
-  /** Draw order: "back" = behind characters, "front" = in front, or "char:<id>" = right after that character. */
+  /** Draw order: "back" = behind characters, "front" = in front, "char:<id>" = right after that character, "behind:<id>" = right before it (e.g. a ball cocked behind the head). */
   layer: PropLayer;
   /** Optional layer changes over time. */
   layerKeys?: { from: number; layer: PropLayer }[];
@@ -143,7 +143,7 @@ export interface PropTrack {
   scale?: number;
 }
 
-export type PropLayer = "back" | "front" | `char:${string}`;
+export type PropLayer = "back" | "front" | `char:${string}` | `behind:${string}`;
 
 export interface ParamKey {
   at: number;
@@ -151,14 +151,49 @@ export interface ParamKey {
   ease?: EaseName;
 }
 
+/**
+ * Shot sizes for auto-framing (vertical 9:16 grammar):
+ *  wide   – geography: whole figures small in the set (~35 % of frame height)
+ *  full   – full figures, big (~55 %)
+ *  medium – waist-up (~60 %)
+ *  close  – head and shoulders (~45 %)
+ *  insert – a prop or detail filling the frame centre
+ */
+export type ShotSize = "wide" | "full" | "medium" | "close" | "insert";
+
+export interface ShotSpec {
+  /** Subjects: character ids and/or "prop:<id>". */
+  on: string[];
+  size?: ShotSize;
+  /** Screen position (0..1) of the subjects' box centre. Defaults per size. */
+  sx?: number;
+  sy?: number;
+  /** Override the size-derived fill (fraction of frame height the subjects occupy). */
+  fill?: number;
+  /** Solve the framing at this frame instead of the key frame (frame the pose the move ends on). */
+  solveAt?: number;
+  /**
+   * Tracking shot: re-solve every frame while this key is active (critically
+   * damped, so the camera trails the subject smoothly instead of jittering).
+   */
+  track?: boolean;
+  /** Tracking lag in frames (default 6). */
+  lag?: number;
+}
+
 export interface CameraKey {
   at: number;
-  x: number;
-  y: number;
-  zoom: number;
+  /** World point at the frame centre. Optional when `shot` frames it. */
+  x?: number;
+  y?: number;
+  zoom?: number;
   rot?: number;
   /** Easing used to arrive at this key from the previous one. */
   ease?: EaseName;
+  /** Auto-framing: x/y/zoom are solved from the subjects (explicit values win). */
+  shot?: ShotSpec;
+  /** Hard cut: hold the previous framing until this key, then switch instantly (editing cut). */
+  cut?: boolean;
 }
 
 export interface ShakeKey {

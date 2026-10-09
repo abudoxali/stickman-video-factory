@@ -147,7 +147,75 @@ export const Ball: React.FC<PropDrawProps> = () => (
   </g>
 );
 
+/**
+ * Red apple. Origin: centre (radius 34). params:
+ *  stem   – length of the hanging stem above it (0 = loose apple)
+ *  swing  – pendulum amplitude while hanging (radians, swings about the stem top)
+ *  bites  – 0..3 bite marks, on the side facing the eater (local -x; held props are mirrored with the holder's facing)
+ *  glint  – 0..1 sparkle (the "prize" read in the opening shot)
+ */
+export const Apple: React.FC<PropDrawProps> = ({ frame, params }) => {
+  const R = 34;
+  const stem = params.stem ?? 0;
+  const swing = (params.swing ?? 0) * Math.sin(frame * 0.21) + 0.5 * (params.swing ?? 0) * noise1(frame / 9, 3);
+  const bites = clamp(Math.round(params.bites ?? 0), 0, 3);
+  const glint = clamp(params.glint ?? 0, 0, 1);
+  const pivotY = -R - stem;
+  const bitePos = [
+    [-R * 0.95, -R * 0.1],
+    [-R * 0.8, R * 0.55],
+    [-R * 0.5, -R * 0.7],
+  ].slice(0, bites);
+  // one bite = a scallop of three tooth circles
+  const scallop = (x: number, y: number, grow = 0) => [
+    [x, y, R * 0.3 + grow],
+    [x + R * 0.08, y + R * 0.27, R * 0.2 + grow],
+    [x + R * 0.08, y - R * 0.27, R * 0.2 + grow],
+  ];
+  const body = `M0 ${-R * 0.72} C ${R * 0.55} ${-R * 1.2} ${R * 1.15} ${-R * 0.75} ${R * 1.02} ${R * 0.05} C ${R * 0.95} ${R * 0.75} ${R * 0.45} ${R * 1.05} 0 ${R * 0.88} C ${-R * 0.45} ${R * 1.05} ${-R * 0.95} ${R * 0.75} ${-R * 1.02} ${R * 0.05} C ${-R * 1.15} ${-R * 0.75} ${-R * 0.55} ${-R * 1.2} 0 ${-R * 0.72} Z`;
+  const id = `apple-bite-${bites}`;
+  return (
+    <g transform={`rotate(${(swing * 180) / Math.PI} 0 ${pivotY})`}>
+      {stem > 0 && <path d={`M0 ${-R + 6} Q4 ${-R - stem * 0.5} 0 ${pivotY}`} stroke="#6b3f2a" strokeWidth={6} fill="none" strokeLinecap="round" />}
+      {bites > 0 && (
+        <defs>
+          <mask id={id}>
+            <rect x={-R * 2} y={-R * 2} width={R * 4} height={R * 4} fill="#fff" />
+            {bitePos.flatMap(([x, y], i) => scallop(x, y).map(([cx, cy, r], k) => <circle key={`${i}-${k}`} cx={cx} cy={cy} r={r} fill="#000" />))}
+          </mask>
+          <clipPath id={`${id}-body`}>
+            <path d={body} />
+          </clipPath>
+        </defs>
+      )}
+      <g mask={bites ? `url(#${id})` : undefined}>
+        <path d={body} fill="#f0423c" stroke={INK} strokeWidth={O} strokeLinejoin="round" />
+        <path d={`M${R * 0.62} ${-R * 0.35} Q${R * 0.7} ${R * 0.2} ${R * 0.35} ${R * 0.55}`} stroke="#ff8a7a" strokeWidth={7} fill="none" strokeLinecap="round" />
+        <path d={`M${-R * 0.55} ${R * 0.55} Q${-R * 0.2} ${R * 0.85} ${R * 0.1} ${R * 0.8}`} stroke="#c42a2a" strokeWidth={6} fill="none" strokeLinecap="round" opacity={0.7} />
+        {bites > 0 && (
+          <g clipPath={`url(#${id}-body)`}>
+            {/* cream flesh rim around each notch, then its ink edge (half the stroke survives the mask) */}
+            {bitePos.flatMap(([x, y], i) => scallop(x, y, R * 0.16).map(([cx, cy, r], k) => <circle key={`f${i}-${k}`} cx={cx} cy={cy} r={r} fill="#fff1cf" />))}
+            {bitePos.flatMap(([x, y], i) =>
+              scallop(x, y).map(([cx, cy, r], k) => <circle key={`e${i}-${k}`} cx={cx} cy={cy} r={r} fill="none" stroke={INK} strokeWidth={7} />),
+            )}
+          </g>
+        )}
+      </g>
+      {/* stem stub + leaf */}
+      <path d={`M0 ${-R * 0.7} L2 ${-R * 1.05}`} stroke="#6b3f2a" strokeWidth={6} strokeLinecap="round" />
+      <path d={`M3 ${-R * 0.95} Q${R * 0.55} ${-R * 1.45} ${R * 0.85} ${-R * 1.0} Q${R * 0.4} ${-R * 0.8} 3 ${-R * 0.95} Z`} fill="#5cc062" stroke={INK} strokeWidth={3.5} strokeLinejoin="round" />
+      {glint > 0.02 && (
+        <g transform={`translate(${R * 0.42} ${-R * 0.35}) scale(${glint * (0.85 + 0.25 * Math.sin(frame * 0.45))}) rotate(${frame * 3})`}>
+          <path d="M0 -26 Q0 0 26 0 Q0 0 0 26 Q0 0 -26 0 Q0 0 0 -26 Z" fill="#ffffff" stroke="#fff6b0" strokeWidth={2} />
+        </g>
+      )}
+    </g>
+  );
+};
+
 export const PROP_RENDERERS: Record<string, React.FC<PropDrawProps>> = {
+  apple: Apple,
   giftBox: GiftBox,
   giftLid: GiftLid,
   cupcake: Cupcake,

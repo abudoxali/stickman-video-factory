@@ -32,8 +32,9 @@ src/characters/  CharacterSpec definitions (Pip, Bo)
 src/engine/audio.ts  SFX cue resolution (authored cues + auto footsteps/landings)
 src/render/      Character (SVG), SceneView, Room + Park (sets), Props, Fx,
                  SceneAudio, FrameSequence (external PNG sequences)
-src/scenes/      SceneDef data (bonk.ts = current demo, theSurprise.ts, motionLibrary.ts;
-                 index.ts = registry used by every script)
+src/scenes/      declarative SceneDef productions; index.ts is the single catalog used by
+                 Studio, validation, QA and rendering; factoryExample.ts is the authoring proof
+src/clips/       exported external motion clips (warmUp.json from editable Blender action)
 src/assets/      manifest.json (generated from public/assets)
 src/compositions/ Remotion wrappers (SceneComposition, RigLab, MotionLibrary, GodotBridge)
 src/bench/       PixiJS renderer benchmark
@@ -41,7 +42,8 @@ public/assets/   licensed asset packs (Kenney impact + interface sounds, CC0)
 godot/cutout-lab Godot project: Kenney modular-character Skeleton2D rig, AnimationTree,
                  Movie Maker renders, godot-mcp editor add-on (tools/build.gd builds scenes)
 blender/         gp_rig_lab.py: Grease Pencil v3 + armature rig, transparent PNG render
-scripts/         qa-motion.ts, probe.ts, stills.mjs, contact-sheet.mjs, render-final.mjs,
+scripts/         scene-cli.ts, sceneTemplate.ts, qa-motion.ts, probe.ts, stills.mjs,
+                 contact-sheet.mjs, render-final.mjs, blender-clips.mjs,
                  verify-render.mjs, audio-cues.ts, bench-motion.ts, bench-engines.mjs,
                  godot-render.mjs, blender-render.mjs, godot-mcp-smoke.mjs,
                  godot-mcp-server.mjs (.mcp.json launcher), build-asset-manifest.mjs
@@ -79,6 +81,12 @@ blinks, environment), weight (pelvis drops to keep planted feet), staging
 npm run dev              # Remotion Studio preview (live, with sound): Bonk, TheSurprise, ...
 npm test                 # unit + production + render-markup tests
 npm run typecheck
+npm run scene:list       # single production catalog
+npm run scene:validate   # validate all scene schemas, references and timelines
+npm run scene:new -- my-story
+npm run scene:preview -- my-story out/qa/my-story-low.mp4
+npm run scene:render -- my-story out/my-story.mp4
+npm run scene:verify -- my-story out/my-story.mp4
 npm run qa -- bonk       # engine motion QA (hard fails on slide/stretch/NaN); qa:all = every scene
 SCENE=bonk npm run probe -- 220 486   # anchor/prop positions at frames (authoring aid)
 npm run render:preview   # Bonk quarter-res with audio (~33 s)
@@ -90,6 +98,8 @@ npm run bench            # arm-blend A/B; npm run bench:engines = cross-engine t
 npm run godot:render     # Godot lab -> public/renders/godot-lab (needs godot on PATH)
 npm run godot:editor     # open the lab in the Godot editor (enables godot-mcp on :6550)
 npm run blender:render   # Blender GP rig lab -> public/renders/blender-lab
+npm run blender:clip:export  # editable clip_lab.blend action -> src/clips/warmUp.json
+npm run blender:clip:rebuild # rebuild authored warmUp action in Blender, save and export
 npm run assets           # rebuild src/assets/manifest.json after adding a pack
 ```
 

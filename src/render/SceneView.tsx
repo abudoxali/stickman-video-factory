@@ -96,6 +96,11 @@ export const SceneView: React.FC<{ def: SceneDef; frame: number; debug?: boolean
     const glow = evalParam(tr.renderParams?.glow, frame, 0);
     return (
       <g key={`c-${id}`}>
+        {def.props
+          .filter((p) => propLayerAt(p, frame) === `behind:${id}`)
+          .map((p) => (
+            <PropView key={p.id} def={def} p={p} sf={sf} frame={frame} />
+          ))}
         <CharacterView s={r.spec} pose={r.pose} joints={r.joints} glow={glow} hideHead={inRanges(tr.hideHead, frame)} smears={def.limbSmears === false ? undefined : limbSmears(rt, id, frame, r.joints)} />
         {def.props
           .filter((p) => propLayerAt(p, frame) === `char:${id}`)
@@ -124,7 +129,7 @@ export const SceneView: React.FC<{ def: SceneDef; frame: number; debug?: boolean
         );
       } else if (stage === "park") {
         nodes.push(
-          <ParkBack key={tok} frame={frame} treeShake={setP("treeShake")} parallaxSky={{ dx: (cam.x - 540) * 0.45, dy: (cam.y - 960) * 0.45 }} />,
+          <ParkBack key={tok} frame={frame} treeShake={setP("treeShake")} treeX={setP("treeX")} parallaxSky={{ dx: (cam.x - 540) * 0.45, dy: (cam.y - 960) * 0.45 }} />,
         );
       } else {
         nodes.push(

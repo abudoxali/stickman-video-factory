@@ -92,9 +92,12 @@ describe("sound", () => {
   });
 
   it("asset registry: every pack declares source + license and ships its license file", () => {
-    for (const p of Object.values(manifest.packs)) {
+    type Pack = { license: string; source: string; dir: string; licenseFile: string; origin?: string; generator?: string };
+    for (const p of Object.values(manifest.packs) as Pack[]) {
       expect(p.license).toMatch(/CC0|CC-BY|MIT|OFL/);
-      expect(p.source).toMatch(/^https:\/\//);
+      // third-party packs link their download page; generated packs name the script that rebuilds them
+      if (p.origin === "generated") expect(fs.existsSync(p.generator!)).toBe(true);
+      else expect(p.source).toMatch(/^https:\/\//);
       expect(fs.existsSync(path.join("public", p.dir, p.licenseFile))).toBe(true);
     }
     expect(() => sfxFiles("impact/nope")).toThrow();

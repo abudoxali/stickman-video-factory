@@ -65,18 +65,51 @@ const mix = (a: string, b: string, t: number) => {
 // ---------------------------------------------------------------------------
 // Limbs
 // ---------------------------------------------------------------------------
+/**
+ * Limb centre line with "rubber-hose" joints: each interior joint is rounded
+ * with a quadratic arc whose radius grows with the bend angle, so elbows and
+ * knees read as soft bends instead of hard polyline corners. Joint positions
+ * (and therefore IK contacts and limb lengths) are untouched; only the drawn
+ * curve is softened. `bendSoft` 0 reproduces the old hard corner.
+ */
+export const limbPath = (pts: Vec2[], w: number, bendSoft = 1) => {
+  if (pts.length < 3 || bendSoft <= 0) return poly(pts);
+  let d = `M${P(pts[0])}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const a = pts[i - 1];
+    const j = pts[i];
+    const b = pts[i + 1];
+    const la = Math.hypot(a.x - j.x, a.y - j.y);
+    const lb = Math.hypot(b.x - j.x, b.y - j.y);
+    const ua = norm(sub(a, j));
+    const ub = norm(sub(b, j));
+    // bend: 0 = straight, PI = folded flat
+    const bend = Math.PI - Math.acos(clamp(ua.x * ub.x + ua.y * ub.y, -1, 1));
+    const r = Math.min(0.45 * Math.min(la, lb), w * (0.9 + 1.1 * clamp(bend / 1.6, 0, 1))) * clamp(bend / 0.35, 0, 1) * bendSoft;
+    if (r < 0.5) {
+      d += ` L${P(j)}`;
+      continue;
+    }
+    d += ` L${P(add(j, scale(ua, r)))} Q${P(j)} ${P(add(j, scale(ub, r)))}`;
+  }
+  return `${d} L${P(pts[pts.length - 1])}`;
+};
+
 const Limb: React.FC<{ pts: Vec2[]; w: number; color: string; ink: string; outline: number }> = ({
   pts,
   w,
   color,
   ink,
   outline,
-}) => (
-  <>
-    <path d={poly(pts)} stroke={ink} strokeWidth={w + outline * 2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-    <path d={poly(pts)} stroke={color} strokeWidth={w} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-  </>
-);
+}) => {
+  const d = limbPath(pts, w);
+  return (
+    <>
+      <path d={d} stroke={ink} strokeWidth={w + outline * 2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      <path d={d} stroke={color} strokeWidth={w} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </>
+  );
+};
 
 const Hand: React.FC<{
   wrist: Vec2;
@@ -134,46 +167,58 @@ const Shoe: React.FC<{ ankle: Vec2; angle: number; s: CharacterSpec; shade: numb
   );
 };
 
+/** Open path through points, smoothed with quadratic segments through the midpoints. */
+const smoothOpen = (pts: Vec2[]) => {
+  let d = `M${P(pts[0])}`;
+  for (let i = 1; i < pts.length; i++) d += ` Q${P(pts[i - 1])} ${P(vlerp(pts[i - 1], pts[i], 0.5))}`;
+  return `${d} L${P(pts[pts.length - 1])}`;
+};
+
 /**
- * Smear frame for a fast arm: the swept area of the forearm over the last
- * ~1-1.5 frames, filled in the sleeve colour, plus tapered speed lines from
- * the hand. Drawn behind the arm, in the character's local space.
+ * Smear frame for a fast arm, drawn behind the arm in the character's local
+ * space: the hand stretches into an opaque, ink-outlined "drag" that follows
+ * the wrist's real path over the last ~1-1.5 frames and tapers to a point,
+ * plus two curved speed lines along the same path. Clean graphic shapes (no
+ * translucent sweep polygons); the drag length scales with the arm speed.
  */
-const ArmSmear: React.FC<{ sm: LimbSmear; toLocal: (p: Vec2) => Vec2; color: string; skin: string; ink: string; w: number }> = ({
+const ArmSmear: React.FC<{ sm: LimbSmear; toLocal: (p: Vec2) => Vec2; skin: string; ink: string; handR: number; outline: number }> = ({
   sm,
   toLocal,
-  color,
   skin,
   ink,
-  w,
+  handR,
+  outline,
 }) => {
-  const W = sm.wrists.map(toLocal);
-  const E = sm.elbows.map(toLocal);
-  const n = W.length;
-  const sweep = [...W, ...E.slice().reverse()];
-  // tapered hand trail: wide at the hand, thin at the oldest sample
+  const all = sm.wrists.map(toLocal);
+  const n = Math.max(3, Math.ceil(all.length * (0.55 + 0.45 * sm.k)));
+  const W = all.slice(0, n);
   const left: Vec2[] = [];
   const right: Vec2[] = [];
+  const hw: number[] = [];
   for (let i = 0; i < n; i++) {
     const a = W[Math.max(0, i - 1)];
     const b = W[Math.min(n - 1, i + 1)];
     const nn = perp(norm(sub(b, a)));
-    const hw = w * 0.75 * (1 - i / (n - 1)) + 1;
-    left.push(add(W[i], scale(nn, hw)));
-    right.push(sub(W[i], scale(nn, hw)));
+    const h = handR * 0.9 * Math.pow(1 - i / (n - 1), 0.75) + 0.8;
+    hw.push(h);
+    left.push(add(W[i], scale(nn, h)));
+    right.push(sub(W[i], scale(nn, h)));
   }
-  const trail = [...left, ...right.reverse()];
-  const lineOff = [-0.55, 0, 0.55];
+  const drag = `${smoothOpen(left)} L${P(W[n - 1])} ${smoothOpen(right.slice().reverse()).replace(/^M/, "L")} Z`;
+  const lines = [1, -1].map((side) =>
+    W.slice(1).map((p, k) => {
+      const i = k + 1;
+      const a = W[Math.max(0, i - 1)];
+      const b = W[Math.min(n - 1, i + 1)];
+      return add(p, scale(perp(norm(sub(b, a))), side * (hw[i] + handR * 0.7)));
+    }),
+  );
   return (
-    <g opacity={r2(sm.k)}>
-      <path d={`${poly(sweep)} Z`} fill={color} opacity={0.55} />
-      <path d={`${poly(trail)} Z`} fill={skin} opacity={0.7} />
-      {lineOff.map((o, i) => {
-        const nn = perp(norm(sub(W[0], W[n - 1])));
-        const a = add(W[n - 1], scale(nn, o * w));
-        const b = add(vlerp(W[n - 1], W[0], 0.7), scale(nn, o * w * 0.8));
-        return <path key={i} d={poly([a, b])} stroke={ink} strokeWidth={3} strokeLinecap="round" opacity={0.45} />;
-      })}
+    <g>
+      <path d={drag} fill={skin} stroke={ink} strokeWidth={outline * 0.8} strokeLinejoin="round" />
+      {lines.map((pts, i) => (
+        <path key={i} d={smoothOpen(pts)} stroke={ink} strokeWidth={3} fill="none" strokeLinecap="round" opacity={r2(0.35 + 0.3 * sm.k)} />
+      ))}
     </g>
   );
 };
@@ -229,7 +274,24 @@ const Eye: React.FC<{
         <g clipPath={`url(#${id}-c)`}>
           <rect x={cx - rx} y={cy - ry} width={rx * 2} height={ry * 2} fill="#ffffff" />
           <circle cx={px} cy={py} r={pr} fill={ink} />
-          <circle cx={px + pr * 0.35} cy={py - pr * 0.4} r={pr * 0.32} fill="#ffffff" />
+          <circle cx={px + pr * 0.35} cy={py - pr * 0.4} r={pr * 0.32 * (1 + 0.25 * clamp(pose.shine, 0, 1))} fill="#ffffff" />
+          {pose.shine > 0.02 && (
+            <g opacity={r2(clamp(pose.shine, 0, 1))}>
+              <circle cx={px - pr * 0.38} cy={py + pr * 0.38} r={pr * 0.17} fill="#ffffff" />
+              {(() => {
+                // twinkling 4-point star glint
+                const s = pr * (0.55 + 0.15 * Math.sin(pose.shine * 9 + cx));
+                const gx = px + pr * 0.42;
+                const gy = py - pr * 0.48;
+                return (
+                  <path
+                    d={`M${r2(gx)} ${r2(gy - s)} Q${r2(gx)} ${r2(gy)} ${r2(gx + s)} ${r2(gy)} Q${r2(gx)} ${r2(gy)} ${r2(gx)} ${r2(gy + s)} Q${r2(gx)} ${r2(gy)} ${r2(gx - s)} ${r2(gy)} Q${r2(gx)} ${r2(gy)} ${r2(gx)} ${r2(gy - s)} Z`}
+                    fill="#ffffff"
+                  />
+                );
+              })()}
+            </g>
+          )}
         </g>
         <ellipse cx={cx} cy={cy} rx={rx} ry={ry} fill="none" stroke={ink} strokeWidth={lw * 0.8} />
       </g>
@@ -432,11 +494,14 @@ export const CharacterView: React.FC<CharacterViewProps> = ({ s, pose, joints, g
   const headR = s.headR;
   const nearFace = (w: Vec2) => Math.hypot(w.x - L.headC.x, w.y - L.headC.y) < headR * 1.25 && w.x > L.headC.x - headR * 0.25;
   const farArmFront = nearFace(L.wristB);
+  // A near arm cocked up behind the head (overhand wind-up, scratching the
+  // back of the head) goes behind it, so the face stays readable.
+  const nearArmBehind = L.wristF.x < L.headC.x - headR * 0.15 && L.wristF.y < L.neckTop.y && L.elbowF.x < L.headC.x + headR * 0.6;
 
   const farSkin = mix(c.skin, ink, 0.12);
   const farArm = (
     <g key="farArm">
-      {smears?.B && <ArmSmear sm={smears.B} toLocal={joints.toLocal} color={c.shirtShade} skin={farSkin} ink={ink} w={s.limbW} />}
+      {smears?.B && <ArmSmear sm={smears.B} toLocal={joints.toLocal} skin={farSkin} ink={ink} handR={s.handR} outline={o} />}
       <Limb pts={aB.sleeve} w={s.limbW} color={c.shirtShade} ink={ink} outline={o} />
       <Limb pts={aB.wrist} w={s.limbW * 0.72} color={farSkin} ink={ink} outline={o} />
       <Hand wrist={L.wristB} angle={L.handAngleB} s={s} open={pose.hBopen} point={pose.hBpoint} skin={farSkin} />
@@ -444,7 +509,7 @@ export const CharacterView: React.FC<CharacterViewProps> = ({ s, pose, joints, g
   );
   const nearArm = (
     <g key="nearArm">
-      {smears?.F && <ArmSmear sm={smears.F} toLocal={joints.toLocal} color={c.shirt} skin={c.skin} ink={ink} w={s.limbW} />}
+      {smears?.F && <ArmSmear sm={smears.F} toLocal={joints.toLocal} skin={c.skin} ink={ink} handR={s.handR} outline={o} />}
       <Limb pts={aF.sleeve} w={s.limbW} color={c.shirt} ink={ink} outline={o} />
       <Limb pts={aF.wrist} w={s.limbW * 0.72} color={c.skin} ink={ink} outline={o} />
       <path d={poly([vlerp(L.elbowF, L.wristF, 0.56), vlerp(L.elbowF, L.wristF, 0.62)])} stroke={c.shirtShade} strokeWidth={s.limbW + 2} strokeLinecap="butt" />
@@ -522,6 +587,7 @@ export const CharacterView: React.FC<CharacterViewProps> = ({ s, pose, joints, g
       <Shoe ankle={L.ankleF} angle={L.footAngleF} s={s} shade={0} />
       {/* neck */}
       <Limb pts={[L.chest, L.neckTop]} w={s.limbW * 0.9} color={c.skin} ink={ink} outline={o} />
+      {nearArmBehind && nearArm}
       {/* torso */}
       <defs>
         <clipPath id={torsoClip}>
@@ -557,7 +623,7 @@ export const CharacterView: React.FC<CharacterViewProps> = ({ s, pose, joints, g
         <ellipse cx={L.headC.x} cy={L.headC.y} rx={hrx} ry={hry} fill={glowColor} opacity={glow * 0.28} />
       )}
       {farArmFront && farArm}
-      {nearArm}
+      {!nearArmBehind && nearArm}
     </g>
   );
 };

@@ -8,6 +8,7 @@ import { INK } from "./Props";
  * Every element is a pure function of the frame (deterministic environment
  * motion). Keyed set params (SceneDef.set):
  *   treeShake – impulse 0..1 (keyed spike) that rattles the canopy
+ *   treeX     – horizontal offset of the big tree (world px, default 0)
  * Layers:
  *   ParkBack – sky, sun, clouds, hills, fence, lawn, tree, flowers, birds
  *   ParkFore – parallax foreground grass (camera depth 1.25)
@@ -105,9 +106,10 @@ const Butterfly: React.FC<{ frame: number }> = ({ frame }) => {
 const canopySway = (frame: number, shake: number) =>
   1.1 * Math.sin(frame / 38) + 0.6 * noise1(frame / 50, 3) + shake * 6 * Math.sin(frame * 1.3);
 
-export const ParkBack: React.FC<{ frame: number; treeShake?: number; parallaxSky?: { dx: number; dy: number } }> = ({
+export const ParkBack: React.FC<{ frame: number; treeShake?: number; treeX?: number; parallaxSky?: { dx: number; dy: number } }> = ({
   frame,
   treeShake = 0,
+  treeX = 0,
   parallaxSky = { dx: 0, dy: 0 },
 }) => {
   const F = PARK.floorY;
@@ -207,8 +209,8 @@ export const ParkBack: React.FC<{ frame: number; treeShake?: number; parallaxSky
       {[[600, 1400], [660, 1384], [940, 1408], [1000, 1390], [360, 1396], [-140, 1404], [1220, 1396]].map(([x, y], i) => (
         <Flower key={i} x={x} y={y} color={C.flowers[i % C.flowers.length]} frame={frame} seed={i + 1} />
       ))}
-      {/* the big tree (left): trunk + canopy that sways and rattles */}
-      <g>
+      {/* the big tree (left by default; SceneDef.set.treeX shifts it): trunk + canopy that sways and rattles */}
+      <g transform={treeX ? `translate(${treeX} 0)` : undefined}>
         <path
           d={`M${T.x0 - 26} ${F + 6} Q${T.x0 + 6} ${F - 40} ${T.x0 + 8} ${F - 160} L${T.x0 + 22} ${T.top} L${T.x1 - 18} ${T.top} L${T.x1} ${F - 160} Q${T.x1 + 4} ${F - 40} ${T.x1 + 34} ${F + 6} Z`}
           fill={C.trunk}

@@ -116,6 +116,7 @@ export interface Pose {
   puff: number; // cheeks puffed (blowing)
   sweat: number;
   crossEye: number;
+  shine: number; // 0..1 sparkling eyes (desire, delight)
   // --- secondary (written by the spring simulation) ------------------------
   hairSwing: number;
   hairStretch: number;

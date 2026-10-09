@@ -30,7 +30,7 @@ export interface SceneAudioDef {
   /** Auto footsteps from locomotion foot-contact events. */
   footsteps?: { sfx: string; volume?: number; chars?: string[] };
   /** Auto thud on jump landings and fall impacts. */
-  landings?: { sfx: string; volume?: number };
+  landings?: { sfx: string; volume?: number; chars?: string[] };
 }
 
 export interface ResolvedSfx {
@@ -86,7 +86,11 @@ export const resolveSceneAudio = (def: SceneDef): ResolvedSfx[] => {
           source: "footstep",
           label: `${tr.id} step`,
         });
-      } else if ((e.kind === "land" || e.kind === "impact") && a.landings) {
+      } else if (
+        (e.kind === "land" || e.kind === "impact") &&
+        a.landings &&
+        (!a.landings.chars || a.landings.chars.includes(tr.id))
+      ) {
         out.push({
           at: e.frame,
           file: pick(a.landings.sfx, e.frame),
