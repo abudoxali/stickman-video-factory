@@ -1,0 +1,38 @@
+{
+  "name": "stickman-video-factory",
+  "version": "1.0.0",
+  "description": "Code-driven 2D cartoon / stickman animation studio built on Remotion",
+  "repository": {},
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@remotion/cli": "4.0.534",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.534"
+  },
+  "devDependencies": {
+    "@remotion/eslint-config-flat": "4.0.534",
+    "@types/react": "19.2.7",
+    "@types/web": "0.0.166",
+    "eslint": "9.39.5",
+    "pixi.js": "^8.22.0",
+    "prettier": "3.8.1",
+    "tsx": "^4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "^3.2.7"
+  },
+  "scripts": {
+    "dev": "remotion studio",
+    "build": "remotion bundle",
+    "upgrade": "remotion upgrade",
+    "lint": "eslint src && tsc",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "qa": "tsx scripts/qa-motion.ts",
+    "render": "scripts/render-final.sh TheSurprise out/the-surprise.mp4",
+    "render:preview": "remotion render TheSurprise out/qa/low.mp4 --scale=0.25",
+    "verify": "node scripts/verify-render.mjs out/the-surprise.mp4",
+    "probe": "tsx scripts/probe.ts"
+  }
+}
