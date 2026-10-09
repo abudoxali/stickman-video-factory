@@ -15,6 +15,8 @@ import {
   vlerp,
   type Vec2,
 } from "./math";
+import warmUp from "../clips/warmUp.json";
+import { keyedClip, type KeyedClipData } from "./keyedClips";
 import { ELBOW_POLE, legLength, reachAngles, solvePose } from "./rig";
 import type { AnchorPart, TargetRef } from "./scene";
 import type { CharacterSpec, PartialPose, Pose } from "./types";
@@ -38,12 +40,16 @@ export interface ClipCtx {
   fwd: 1 | -1;
   params: Record<string, unknown>;
   target: (ref: TargetRef) => Vec2;
+  /** Target as it was/will be at another frame (e.g. freeze a grab point before the prop attaches to the hand). */
+  targetAt: (ref: TargetRef, frame: number) => Vec2;
   self: (part: AnchorPart | "shoulderF" | "shoulderB", pose?: Pose) => Vec2;
 }
 
 export interface Clip {
   kind: "override" | "additive";
   description: string;
+  /** How arm channels blend in/out: "hand" (default, hand travels on an arc around the shoulder) or "angle". */
+  armBlend?: "hand" | "angle";
   fn: (c: ClipCtx) => PartialPose;
 }
 
@@ -354,7 +360,10 @@ export const CLIPS: Record<string, Clip> = {
     description: "Bend down (pelvis lowers, spine folds), grab a floor target, rise to a carry position.",
     fn: (c) => {
       const side = sideOf(c.params.side);
-      const tgt = c.target(c.params.target as TargetRef);
+      // The grab point is frozen at the grab moment: once the prop is attached
+      // to this hand, chasing its live position would feed back into the IK.
+      const grabFrame = c.frame - c.t + Math.round(c.dur * 0.45);
+      const tgt = c.targetAt(c.params.target as TargetRef, Math.min(c.frame, grabFrame));
       const down = progress(c.u, 0, 0.42, ease.inOutCubic);
       const rise = progress(c.u, 0.55, 1, ease.inOutCubic);
       const k = down * (1 - rise);
@@ -639,6 +648,205 @@ export const CLIPS: Record<string, Clip> = {
     fn: (c) => ({ shrug: 3 * Math.sin(c.t * 2.2), chest: 0.025 * Math.sin(c.t * 2.2 + 0.5), head: 0.02 * Math.sin(c.t * 2.2 + 1) }),
   },
 
+  // ------------------------------------------------------------ throw/catch
+  throw: {
+    kind: "override",
+    description:
+      "Throw with anticipation: wind-up (weight back, arm cocked), accelerating whip to the release frame, follow-through past the target, settle. params: side, target (aim), release (frame offset of the release), style ('underhand' | 'overhand'), power (0.5..1.5).",
+    fn: (c) => {
+      const side = sideOf(c.params.side);
+      const other: Side = side === "F" ? "B" : "F";
+      const r = Number(c.params.release ?? Math.round(c.dur * 0.6));
+      const p = Number(c.params.power ?? 1);
+      const over = c.params.style === "overhand";
+      const sh0 = c.pose[side === "F" ? "aFsh" : "aBsh"];
+      // aim: direction from shoulder to target, kept in a sane release band
+      const tgt = c.target(c.params.target as TargetRef);
+      const shp = c.self(side === "F" ? "shoulderF" : "shoulderB");
+      const d = sub(tgt, shp);
+      const aim = clamp(Math.atan2(d.x * c.fwd, d.y), 0.9, 2.5);
+      const windT = Math.max(4, r - (over ? 6 : 7));
+      const wind = progress(c.t, 0, windT, ease.inOutCubic);
+      const whip = progress(c.t, windT, r, ease.inQuad);
+      const follow = progress(c.t, r, r + 9, ease.outCubic);
+      const settle = progress(c.t, r + 9, r + 22, ease.inOutSine);
+      // cocked pose (tension tremble during the hold before the whip)
+      const tremble = 0.03 * Math.sin(c.t * 2.1) * wind * (1 - whip);
+      const cockSh = over ? 3.45 : -0.95 * p;
+      const cockEl = over ? 1.95 : 0.3;
+      const followSh = over ? 0.55 : aim + 0.7;
+      const followEl = over ? 0.55 : 0.25;
+      let sh = lerp(sh0, cockSh, wind) + tremble;
+      let el = lerp(c.pose[side === "F" ? "aFel" : "aBel"], cockEl, wind);
+      sh = lerp(sh, aim, whip);
+      el = lerp(el, 0.12, whip);
+      sh = lerp(sh, followSh, follow);
+      el = lerp(el, followEl, follow);
+      sh = lerp(sh, lerp(followSh, 0.35, 0.5), settle * 0.6);
+      // counterbalancing other arm swings opposite
+      const oSh = lerp(c.pose[other === "F" ? "aFsh" : "aBsh"], over ? 1.2 : 0.9, wind) - 1.1 * whip * (1 - settle * 0.5);
+      // weight: back on the wind, forward through the release
+      const weight = -0.14 * p * wind * (1 - whip) + 0.2 * p * whip * (1 - settle * 0.6);
+      return {
+        ...arm(side, sh, el, over ? -0.3 * wind : 0.2),
+        ...arm(other, oSh, 0.5 + 0.3 * wind),
+        ...hand(side, c.t < r ? 0.15 : lerp(0.15, 1, follow)),
+        ...hand(other, 0.7),
+        lean: c.pose.lean + weight,
+        chest: c.pose.chest + 0.5 * weight,
+        head: c.pose.head - 0.4 * weight,
+        hipY: c.pose.hipY - 14 * p * wind * (1 - whip) - 6 * whip * (1 - settle),
+        shrug: c.pose.shrug + 6 * wind * (1 - whip),
+        squash: 1 - 0.04 * wind * (1 - whip) + 0.05 * whip * (1 - follow),
+      };
+    },
+  },
+
+  catch: {
+    kind: "override",
+    description:
+      "Two-handed catch: hands open toward the catch point, widen just before contact, then absorb the impact (hands recoil to the chest, lean back, spring settle). params: target (catch point), at (frame offset of contact), width.",
+    fn: (c) => {
+      const at = Number(c.params.at ?? Math.round(c.dur * 0.5));
+      const w = Number(c.params.width ?? 60) / 2;
+      const tgt = c.target(c.params.target as TargetRef);
+      const chest = c.self("chest");
+      const ready = progress(c.t, 0, Math.min(at, 10), ease.outCubic);
+      const widen = progress(c.t, at - 5, at - 1, ease.outQuad) * (1 - progress(c.t, at, at + 2));
+      const hit = c.t >= at ? springStep((c.t - at) / 30, 2.6, 0.45) : 0;
+      const absorb = c.t >= at ? Math.exp(-(c.t - at) / 7) : 0;
+      // after contact the hands carry the ball toward the chest
+      const hold = add(chest, v(c.fwd * 46, -6));
+      const pt = vlerp(tgt, hold, clamp(hit, 0, 1.15));
+      const spread = w + 26 * widen - 8 * clamp(hit, 0, 1);
+      const ikF = reachAngles(c.spec, c.pose, "F", add(pt, v(c.fwd * spread * 0.6, 4)), HOLD_POLE_F);
+      const ikB = reachAngles(c.spec, c.pose, "B", add(pt, v(-c.fwd * spread * 0.6, -2)), HOLD_POLE_B);
+      return {
+        aFsh: ikF.sh,
+        aFel: ikF.el,
+        aBsh: ikB.sh,
+        aBel: ikB.el,
+        aFwr: -0.4,
+        aBwr: -0.4,
+        hFopen: lerp(1, 0.3, clamp(hit, 0, 1)),
+        hBopen: lerp(1, 0.3, clamp(hit, 0, 1)),
+        hipY: c.pose.hipY - 10 * ready - 14 * absorb,
+        lean: c.pose.lean + 0.06 * ready - 0.14 * absorb,
+        head: c.pose.head - 0.08 * absorb,
+        squash: 1 - 0.05 * absorb,
+      };
+    },
+  },
+
+  rubHead: {
+    kind: "override",
+    description: "Rub a sore head: hand to the back/top of the head (arm stays clear of the face) with small circular rubs, wince lean. params: side, rate.",
+    fn: (c) => {
+      const side = sideOf(c.params.side);
+      const rate = Number(c.params.rate ?? 1);
+      const top = c.self("headTop");
+      const ph = (c.t * rate) / 7;
+      const tgt = add(top, v(-c.fwd * (22 + 9 * Math.cos(ph)), -4 + 6 * Math.sin(ph)));
+      const ik = reachAngles(c.spec, c.pose, side, tgt, v(0.6, 1));
+      return {
+        ...arm(side, ik.sh, ik.el, -0.6),
+        ...hand(side, 0.8),
+        head: c.pose.head + 0.08 + 0.03 * Math.sin(ph),
+        shrug: c.pose.shrug + 5,
+        lean: c.pose.lean + 0.04,
+      };
+    },
+  },
+
+  eat: {
+    kind: "override",
+    description:
+      "Bring the held food to the mouth and take bites: mouth opens wide in anticipation, snaps shut on each bite frame (head dips into it, hand tears away and recoils), then happy chewing. params: side, bites (frame offsets, default [10]), reach (px forward from mouth to hand), drop (px below the mouth), chew (0..1 chewing after the last bite).",
+    fn: (c) => {
+      const side = sideOf(c.params.side);
+      const bites = (c.params.bites as number[] | undefined) ?? [10];
+      const reachPx = Number(c.params.reach ?? 46);
+      const drop = Number(c.params.drop ?? 12);
+      // nearest bite around now: anticipation (open) before, snap + tear after
+      let open = 0;
+      let tear = 0;
+      let dip = 0;
+      let approach = 0;
+      for (const b of bites) {
+        const d = c.t - b;
+        if (d < 0 && d >= -5) open = Math.max(open, ease.outQuad((d + 5) / 5));
+        // the food comes to the open mouth, then the jaw snaps shut on it
+        if (d < 0 && d >= -7) approach = Math.max(approach, ease.inOutSine((d + 7) / 7));
+        if (d >= 0 && d < 3) approach = Math.max(approach, 1 - d / 3);
+        if (d >= 0 && d < 14) {
+          tear = Math.max(tear, Math.exp(-d / 4) * Math.sin(Math.min(1, d / 2) * Math.PI * 0.5));
+          dip = Math.max(dip, Math.exp(-d / 3));
+        }
+        if (d < 0 && d >= -5) dip = Math.max(dip, -0.4 * ((d + 5) / 5));
+      }
+      const last = bites[bites.length - 1];
+      const chewing = c.t > last + 2 ? Number(c.params.chew ?? 1) : 0;
+      const chew = chewing * (0.5 + 0.5 * Math.sin(((c.t - last) / 6.5) * 2 * Math.PI));
+      const raise = progress(c.t, 0, Math.max(4, bites[0] - 4), ease.inOutCubic);
+      // hand holds the food just in front of the mouth; tears away on each bite
+      // Bites happen in profile: the face turns so the mouth reaches the head's
+      // silhouette edge and the food only overlaps the mouth, never the face.
+      const prof = Math.max(approach, 0.6 * Math.max(0, 1 - Math.abs(tear - 0.5) * 2) * (tear > 0 ? 1 : 0));
+      const mouthP = c.self("mouth", { ...c.pose, faceTurn: lerp(c.pose.faceTurn, 0.98, prof) });
+      const hold = add(mouthP, v(c.fwd * (reachPx - 8 * approach + 22 * tear), drop - 6 * approach + 30 * tear));
+      const start = c.self(side === "F" ? "handF" : "handB");
+      const goal = vlerp(start, hold, raise);
+      const ik = reachAngles(c.spec, c.pose, side, goal);
+      return {
+        ...arm(side, ik.sh, ik.el, -0.5),
+        ...hand(side, 0.15),
+        faceTurn: lerp(c.pose.faceTurn, 0.98, prof),
+        eyeX: lerp(c.pose.eyeX, 0.6, prof),
+        neck: c.pose.neck + 0.12 * dip + 0.05 * raise,
+        head: c.pose.head + 0.14 * dip - 0.04 * chew,
+        lean: c.pose.lean + 0.03 * dip,
+        mouthOpen: Math.max(1.05 * open, 0.12 + 0.22 * chew),
+        mouthRound: 0.2 * open,
+        mouthW: 1 - 0.2 * chew,
+        teeth: open > 0.2 ? 1 : 0,
+        puff: c.pose.puff + 0.45 * chewing,
+        mouthX: 0.18 * Math.sin(((c.t - last) / 6.5) * 2 * Math.PI) * chewing,
+        squash: 1 - 0.035 * dip,
+      };
+    },
+  },
+
+  hit: {
+    kind: "override",
+    description:
+      "Physical impact reaction from a direction: the hit part snaps away from the impact (head whip / body squash), knees buckle, arms fling out and dangle, then a damped spring settles back. params: from ('top' | 'front' | 'back'), strength.",
+    fn: (c) => {
+      const k = Number(c.params.strength ?? 1);
+      const from = String(c.params.from ?? "top");
+      const s = springStep(c.t / 30, 2.2, 0.32); // 0 -> overshoot -> 1
+      const imp = Math.exp(-c.t / 5); // sharp impulse
+      const a = (1 - s * 0.85) * k * (c.t > 0 ? 1 : 0) + imp * 0.3 * k;
+      const fling = progress(c.t, 0, 3, ease.outQuad) * (1 - progress(c.t, 6, 20, ease.inOutSine));
+      const dirFwd = from === "front" ? -1 : from === "back" ? 1 : 0;
+      const top = from === "top" ? 1 : 0.35;
+      return {
+        // vertical impact: squash + buckle; horizontal: whip away from the hit
+        squash: 1 - 0.14 * a * top,
+        hipY: c.pose.hipY - 34 * a * top,
+        neck: c.pose.neck + (0.22 * top + 0.3 * dirFwd) * a,
+        head: c.pose.head + (0.2 * top + 0.35 * dirFwd) * a,
+        lean: c.pose.lean + (0.08 * top + 0.22 * dirFwd) * a,
+        shrug: c.pose.shrug + 14 * fling * k,
+        aFsh: lerp(c.pose.aFsh, 1.35 + 0.4 * dirFwd, fling * k),
+        aFel: lerp(c.pose.aFel, 0.35, fling),
+        aBsh: lerp(c.pose.aBsh, 1.05 + 0.4 * dirFwd, fling * k),
+        aBel: lerp(c.pose.aBel, 0.4, fling),
+        hFopen: 1,
+        hBopen: 1,
+      };
+    },
+  },
+
   offset: {
     kind: "additive",
     description: "Generic additive pose offset (params: any pose channels). With long blend-in it makes a slow 'creep' / moving hold.",
@@ -655,6 +863,13 @@ export const CLIPS: Record<string, Clip> = {
     fn: (c) => ({ head: 0.12 * Math.max(0, osc(c.t, 14)), neck: 0.05 * Math.max(0, osc(c.t, 14, -0.1)) }),
   },
 };
+
+/**
+ * Externally authored clips (Blender -> blender/clips/export_clip.py -> JSON).
+ * Each JSON in src/clips becomes a regular named clip.
+ */
+export const KEYED_CLIPS: Record<string, KeyedClipData> = { warmUp: warmUp as KeyedClipData };
+for (const [name, data] of Object.entries(KEYED_CLIPS)) CLIPS[name] = keyedClip(data);
 
 export const CLIP_NAMES = Object.keys(CLIPS);
 

@@ -14,4 +14,4 @@ Work loop:
    (`ease.outBack` for snaps), spring/decay follow-through, offset timing between limbs.
 3. Keep angular speed of oscillating gestures ≤ ~0.6 rad/frame; blend-ins ≥ 5 frames unless it is a shock.
 4. Re-run QA and a quarter-res contact sheet of the affected frames
-   (`scripts/contact-sheet.sh out/qa/low.mp4 out/qa/sheets 2 6 4 <start>`), read it, report.
+   (`node scripts/contact-sheet.mjs out/qa/low.mp4 out/qa/sheets 2 6 4 <start>`), read it, report.

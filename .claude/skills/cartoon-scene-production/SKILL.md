@@ -35,7 +35,7 @@ per prop).
    anchor at the landing frame (otherwise the attach blend pops).
 3. Iterate quickly at quarter resolution (~25 s for 24 s of video):
    `npx remotion render TheSurprise out/qa/low.mp4 --scale=0.25`
-   then `scripts/contact-sheet.sh out/qa/low.mp4 out/qa/sheets 6` and read
+   then `node scripts/contact-sheet.mjs out/qa/low.mp4 out/qa/sheets 6` and read
    the sheets. Full-res spot checks: `node scripts/stills.mjs <Comp> out/qa/stills 0.5 <frames...>`.
 4. Fix staging/clip issues, re-run `npx tsx scripts/qa-motion.ts`.
 5. Final render + verification via the video-rendering skill.
@@ -54,3 +54,29 @@ per prop).
   `maxLean`).
 - Prop attachment switches without matching positions → pops (qa-motion
   "prop jumps"). Use `blend` 2–4 frames and probe to align.
+
+## Production features added for BONK! (use them)
+- **Sets**: `stage: "room" | "park" | "plain"`. Park = sky, sun, clouds, birds,
+  butterfly, hills, fence, lawn path, flowers and a tree (trunk right face at
+  `PARK.trunk.x1`, canopy rattle keyed by `set.treeShake` impulses).
+- **Moving-target throws**: ballistic prop states take `toRef` (a TargetRef —
+  char anchor / prop / point) and optional `contact` (px to stop short along
+  the line back to the origin, e.g. ball radius + head radius). The arc lands
+  where the target *is at the landing frame* — catches and bonks survive any
+  re-timing. Hand-offs: `attach` states with `blend: 2-6`. Before a one-arm
+  throw, re-attach the prop from `hands` to `handF` (else it floats between
+  the hands while the throwing arm winds up).
+- **FX that follow**: any FxKey can `follow` a TargetRef; `stars` (dizzy, orbit
+  a head — use part `headTop`) and `leaves` (shaken loose) are new kinds.
+- **Sound**: `audio: { cues: [{ at, sfx: "impact/impactPunch_heavy", volume, rate,
+  label }], footsteps: { sfx: "impact/footstep_grass" }, landings: { sfx } }`.
+  Footsteps/landings come from locomotion contact events (tiptoe is quieter,
+  runs louder) so they never drift. Sound ids = `src/assets/manifest.json`
+  (`npm run assets` after adding a pack under `public/assets/<pack>/` with an
+  `asset.json` + license file). Cue every contact the eye sees: release, catch,
+  impact, bounce (decreasing volume), grab.
+- **Staging gotchas found in review**: a hand going to the *top* of the head
+  from the near arm crosses the face — rub the back of the head with the far
+  arm (`rubHead` side "B"); keep the character facing the person they glare at;
+  props resting near set pieces must leave room for the bend of a pick-up
+  (head travels ~130 px forward).

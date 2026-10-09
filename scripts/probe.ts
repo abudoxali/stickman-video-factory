@@ -2,10 +2,10 @@
 // Usage: npx tsx scripts/probe.ts <frame> [<frame> ...]
 import { anchorPoint } from "../src/engine/anchors";
 import { evaluateScene, getRuntime } from "../src/engine/runtime";
-import { motionLibrary } from "../src/scenes/motionLibrary";
-import { theSurprise } from "../src/scenes/theSurprise";
+import { SCENES } from "../src/scenes";
 
-const def = process.env.SCENE === "motion-library" ? motionLibrary : theSurprise;
+const def = SCENES[process.env.SCENE ?? "the-surprise"];
+if (!def) throw new Error(`unknown SCENE ${process.env.SCENE}; one of ${Object.keys(SCENES).join(", ")}`);
 const rt = getRuntime(def);
 for (const tr of def.characters) for (const w of rt.bakes.get(tr.id)!.warnings) console.log("WARN", w);
 const f2 = (p: { x: number; y: number }) => `(${p.x.toFixed(0)},${p.y.toFixed(0)})`;

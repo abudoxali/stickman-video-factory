@@ -1,11 +1,13 @@
 import React from "react";
 import { cameraTransform, evaluateCamera, parallaxTransform } from "../engine/camera";
-import { evalParam, evaluateProp, evaluateScene, getRuntime, type SceneFrame } from "../engine/runtime";
+import { evalParam, evaluateProp, evaluateScene, getRuntime, limbSmears, type SceneFrame } from "../engine/runtime";
 import type { FxKey, PropLayer, PropTrack, SceneDef } from "../engine/scene";
 import { CharacterShadow, CharacterView } from "./Character";
 import { Fx } from "./Fx";
 import { INK, PROP_RENDERERS, trailOpacity } from "./Props";
+import { ParkBack, ParkFore } from "./Park";
 import { Doorway, DoorPanel, ROOM, RoomBack, RoomFore } from "./Room";
+import { anchorPoint } from "../engine/anchors";
 
 const DEFAULT_ORDER = ["set:back", "set:doorway", "shadows", "char:*", "props:back", "props:front", "fx", "set:fore"];
 
@@ -68,6 +70,21 @@ export const SceneView: React.FC<{ def: SceneDef; frame: number; debug?: boolean
   }
   const allFx = [...def.fx, ...autoFx];
 
+  // FX that follow a character anchor or a prop (dizzy stars, trails ...)
+  const fxOrigin = (fx: FxKey) => {
+    const f = fx.follow;
+    if (!f || frame < fx.at || frame > fx.at + (fx.dur ?? 18)) return undefined;
+    if ("point" in f) return { x: f.point[0], y: f.point[1] };
+    const off = f.offset ?? [0, 0];
+    if ("prop" in f) {
+      const p = sf.props[f.prop];
+      return { x: p.x + off[0], y: p.y + off[1] };
+    }
+    const r = sf.characters[f.char];
+    const a = anchorPoint(r.spec, r.pose, r.joints, f.part);
+    return { x: a.x + off[0], y: a.y + off[1] };
+  };
+
   const charIds = def.characters.map((c) => c.id);
   const drawn = new Set<string>();
 
@@ -79,7 +96,12 @@ export const SceneView: React.FC<{ def: SceneDef; frame: number; debug?: boolean
     const glow = evalParam(tr.renderParams?.glow, frame, 0);
     return (
       <g key={`c-${id}`}>
-        <CharacterView s={r.spec} pose={r.pose} joints={r.joints} glow={glow} hideHead={inRanges(tr.hideHead, frame)} />
+        {def.props
+          .filter((p) => propLayerAt(p, frame) === `behind:${id}`)
+          .map((p) => (
+            <PropView key={p.id} def={def} p={p} sf={sf} frame={frame} />
+          ))}
+        <CharacterView s={r.spec} pose={r.pose} joints={r.joints} glow={glow} hideHead={inRanges(tr.hideHead, frame)} smears={def.limbSmears === false ? undefined : limbSmears(rt, id, frame, r.joints)} />
         {def.props
           .filter((p) => propLayerAt(p, frame) === `char:${id}`)
           .map((p) => (
@@ -104,6 +126,10 @@ export const SceneView: React.FC<{ def: SceneDef; frame: number; debug?: boolean
       if (stage === "room") {
         nodes.push(
           <RoomBack key={tok} frame={frame} lamp={setP("lamp")} parallaxSky={{ dx: (cam.x - 540) * 0.35, dy: (cam.y - 960) * 0.35 }} />,
+        );
+      } else if (stage === "park") {
+        nodes.push(
+          <ParkBack key={tok} frame={frame} treeShake={setP("treeShake")} treeX={setP("treeX")} parallaxSky={{ dx: (cam.x - 540) * 0.45, dy: (cam.y - 960) * 0.45 }} />,
         );
       } else {
         nodes.push(
@@ -161,7 +187,7 @@ export const SceneView: React.FC<{ def: SceneDef; frame: number; debug?: boolean
       nodes.push(
         <g key={tok}>
           {allFx.map((fx, i) => (
-            <Fx key={i} fx={fx} frame={frame} />
+            <Fx key={i} fx={fx} frame={frame} origin={fxOrigin(fx)} />
           ))}
         </g>,
       );
@@ -177,9 +203,9 @@ export const SceneView: React.FC<{ def: SceneDef; frame: number; debug?: boolean
         </radialGradient>
       </defs>
       <g transform={cameraTransform(def, cam)}>{nodes}</g>
-      {stage === "room" && order.includes("set:fore") && (
+      {stage !== "plain" && order.includes("set:fore") && (
         <g transform={parallaxTransform(def, cam, 1.25)}>
-          <RoomFore frame={frame} />
+          {stage === "park" ? <ParkFore frame={frame} /> : <RoomFore frame={frame} />}
         </g>
       )}
       <rect x={0} y={0} width={def.width} height={def.height} fill="url(#vignette)" />

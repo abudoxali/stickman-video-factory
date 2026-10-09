@@ -1,0 +1,14 @@
+{
+  "id": "kenney-modular-characters",
+  "alias": "modularChars",
+  "kind": "sprites",
+  "title": "Modular Characters",
+  "author": "Kenney (www.kenney.nl)",
+  "source": "https://kenney.nl/assets/modular-characters",
+  "download": "https://kenney.nl/media/pages/assets/modular-characters/d84577feef-1677670340/kenney_modular-characters.zip",
+  "license": "CC0-1.0",
+  "licenseUrl": "http://creativecommons.org/publicdomain/zero/1.0/",
+  "licenseFile": "License.txt",
+  "retrieved": "2026-10-09",
+  "notes": "Subset (2 skin tints, 2 outfits, 2 hair styles, face parts) used by the Godot Skeleton2D cutout rig in godot/cutout-lab. License verified from license.txt inside the archive."
+}

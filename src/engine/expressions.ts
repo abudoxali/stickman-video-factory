@@ -29,6 +29,7 @@ export const FACE_CHANNELS: PoseChannel[] = [
   "puff",
   "sweat",
   "crossEye",
+  "shine",
 ];
 
 export const EXPRESSIONS = {
@@ -107,6 +108,30 @@ export const EXPRESSIONS = {
   grin: {
     face: { browY: 0.5, smile: 1, mouthW: 1.35, teeth: 1, mouthOpen: 0.3, cheek: 0.8, squint: 0.2 },
     body: { head: -0.05 },
+  },
+  smug: {
+    face: { browY: 0.15, browAsym: 0.9, lidTop: 0.5, smile: 0.75, mouthX: 0.35, mouthW: 0.85, cheek: 0.45 },
+    body: { lean: -0.08, head: -0.14, neck: -0.06, shrug: -2 },
+  },
+  longing: {
+    face: { browY: 0.65, browTilt: 0.6, eyeScale: 1.25, pupil: 1.35, shine: 1, smile: 0.3, mouthOpen: 0.25, mouthRound: 0.4, mouthW: 0.7, cheek: 0.6 },
+    body: { neck: -0.06, head: -0.06 },
+  },
+  determined: {
+    face: { browY: -0.5, browTilt: -0.85, lidTop: 0.2, smile: -0.1, mouthW: 0.65, cheek: 0.4 },
+    body: { lean: 0.08, neck: 0.06, shrug: 4 },
+  },
+  dejected: {
+    face: { browY: -0.2, browTilt: 0.65, lidTop: 0.55, smile: -0.4, mouthW: 0.65, eyeY: 0.4, cheek: 0.1 },
+    body: { lean: 0.1, chest: 0.12, neck: 0.18, head: 0.12, shrug: -8, aFsh: -0.08, aBsh: -0.08 },
+  },
+  deadpan: {
+    face: { browY: -0.1, lidTop: 0.62, smile: 0, mouthW: 0.7, cheek: 0.1 },
+    body: { head: 0.02 },
+  },
+  blissful: {
+    face: { browY: 0.5, browTilt: 0.35, squint: 1, smile: 0.85, puff: 0.45, cheek: 1, mouthW: 0.8, shine: 0.4 },
+    body: { head: -0.08, shrug: 3 },
   },
 } satisfies Record<string, Expression>;
 

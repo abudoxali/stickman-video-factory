@@ -6,14 +6,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { anchorPoint } from "../src/engine/anchors";
-import { evaluateCamera } from "../src/engine/camera";
+import { cutFrames, evaluateCamera, evaluateFraming } from "../src/engine/camera";
+import { boxH, characterBox, outsideFraction, toScreen, unionBox, type Box } from "../src/engine/framing";
 import { dist, rotate, v, type Vec2 } from "../src/engine/math";
 import { evaluateScene, getRuntime } from "../src/engine/runtime";
-import type { SceneDef } from "../src/engine/scene";
-import { motionLibrary } from "../src/scenes/motionLibrary";
-import { theSurprise } from "../src/scenes/theSurprise";
+import { SCENES } from "../src/scenes";
 
-const SCENES: Record<string, SceneDef> = { "the-surprise": theSurprise, "motion-library": motionLibrary };
 const name = process.argv[2] ?? "the-surprise";
 const def = SCENES[name];
 if (!def) throw new Error(`unknown scene ${name}`);
@@ -63,6 +61,11 @@ for (const tr of def.characters) {
 }
 
 let secMotion = 0;
+const framing: Record<string, { onFrames: number; offFrames: number; sumH: number; minH: number; clipFrames: number; clipSamples: number[] }> = {};
+for (const tr of def.characters) framing[tr.id] = { onFrames: 0, offFrames: 0, sumH: 0, minH: Infinity, clipFrames: 0, clipSamples: [] };
+const frameUse = { span: 0, headroom: 0, n: 0, abrupt: 0, abruptSamples: [] as number[] };
+let prevCam: ReturnType<typeof evaluateFraming> | null = null;
+const cuts = new Set(cutFrames(def));
 for (let f = 0; f < N; f++) {
   const sf = evaluateScene(def, f);
   for (const tr of def.characters) {
@@ -143,6 +146,52 @@ for (let f = 0; f < N; f++) {
     prevFacing[tr.id] = r.pose.facing;
   }
 
+  // framing: how big / clipped each character is on screen (camera without shake)
+  const cam = evaluateFraming(def, f);
+  const onScreen: Box[] = [];
+  // a subject leaving frame while the camera deliberately moves is a reframe, not a framing flaw
+  const prevF = f > 0 ? evaluateFraming(def, f - 1) : cam;
+  const camHolding = Math.hypot(cam.x - prevF.x, cam.y - prevF.y) * cam.zoom < 4 && Math.abs(Math.log(cam.zoom / prevF.zoom)) < 0.005;
+  for (const tr of def.characters) {
+    if (inRanges(tr.hidden, f)) continue;
+    const r = sf.characters[tr.id];
+    const sb = toScreen(def, cam, characterBox(r));
+    const out = outsideFraction(def, sb);
+    const F = framing[tr.id];
+    if (out >= 0.98) {
+      F.offFrames++;
+      continue;
+    }
+    F.onFrames++;
+    F.sumH += boxH(sb) / def.height;
+    F.minH = Math.min(F.minH, boxH(sb) / def.height);
+    // Clipped while performing (entrances/exits on a walk are intentional).
+    // Cropping the body at the bottom edge is normal shot grammar (medium /
+    // close-up); a cut-off head or a body sliced by a side edge is a flaw.
+    const headOut = outsideFraction(def, toScreen(def, cam, characterBox(r, "head")));
+    const sideOut = (Math.max(0, -sb.x0) + Math.max(0, sb.x1 - def.width)) / Math.max(1, sb.x1 - sb.x0);
+    if ((headOut > 0.04 || sideOut > 0.08) && r.loco.moving < 0.3 && camHolding) {
+      F.clipFrames++;
+      F.clipSamples.push(f);
+    }
+    onScreen.push({ x0: Math.max(0, sb.x0), y0: Math.max(0, sb.y0), x1: Math.min(def.width, sb.x1), y1: Math.min(def.height, sb.y1) });
+  }
+  if (onScreen.length) {
+    const u = unionBox(onScreen);
+    frameUse.span += boxH(u) / def.height;
+    frameUse.headroom += u.y0 / def.height;
+    frameUse.n++;
+  }
+  if (prevCam && !cuts.has(f)) {
+    const dz = Math.abs(Math.log(cam.zoom / prevCam.zoom));
+    const dc = Math.hypot(cam.x - prevCam.x, cam.y - prevCam.y) * cam.zoom;
+    if (dz > 0.045 || dc > 45) {
+      frameUse.abrupt++;
+      frameUse.abruptSamples.push(f);
+    }
+  }
+  prevCam = cam;
+
   // head-head interpenetration between characters
   const ids = def.characters.map((c) => c.id).filter((id) => !inRanges(def.characters.find((c) => c.id === id)!.hidden, f));
   for (let a = 0; a < ids.length; a++)
@@ -207,6 +256,35 @@ const camRange = (() => {
   return { zmin: Number(zmin.toFixed(2)), zmax: Number(zmax.toFixed(2)) };
 })();
 
+/** [1,2,3,7,8] -> "1-3,7-8" */
+const toRanges = (fr: number[]) => {
+  const out: string[] = [];
+  for (let i = 0; i < fr.length; i++) {
+    let j = i;
+    while (j + 1 < fr.length && fr[j + 1] === fr[j] + 1) j++;
+    out.push(i === j ? `${fr[i]}` : `${fr[i]}-${fr[j]}`);
+    i = j;
+  }
+  return out.join(",");
+};
+const framingReport = {
+  characters: Object.fromEntries(
+    Object.entries(framing).map(([id, F]) => [
+      id,
+      {
+        meanScreenHeight: Number((F.sumH / Math.max(1, F.onFrames)).toFixed(3)),
+        minScreenHeight: Number((F.onFrames ? F.minH : 0).toFixed(3)),
+        clippedWhileActing: F.clipFrames,
+        clipRanges: toRanges(F.clipSamples),
+        offscreenFrames: F.offFrames,
+      },
+    ]),
+  ),
+  meanSubjectSpan: Number((frameUse.span / Math.max(1, frameUse.n)).toFixed(3)),
+  meanHeadroom: Number((frameUse.headroom / Math.max(1, frameUse.n)).toFixed(3)),
+  abruptCameraFrames: frameUse.abrupt,
+  abruptRanges: toRanges(frameUse.abruptSamples),
+};
 const actionCount = def.characters.reduce((n, c) => n + c.actions.length + c.moves.length, 0);
 const clipsUsed = [...new Set(def.characters.flatMap((c) => c.actions.map((a) => a.clip)))].sort();
 const movesUsed = [...new Set(def.characters.flatMap((c) => c.moves.map((m) => m.type + ("style" in m && m.style ? `:${m.style}` : ""))))].sort();
@@ -219,6 +297,7 @@ const report = {
   characters: per,
   actions: { count: actionCount, clipsUsed, movesUsed, expressionKeys: def.characters.reduce((n, c) => n + c.expressions.length, 0) },
   camera: { keys: camKeys, ...camRange, shakes: def.camera.shakes.length },
+  framing: framingReport,
   motionPerSecond,
   staticSeconds,
   events,
@@ -236,6 +315,13 @@ for (const [id, P] of Object.entries(per))
   );
 console.log(`  actions+moves=${actionCount} clips=${clipsUsed.length} moves=${movesUsed.join(",")}`);
 console.log(`  camera keys=${camKeys} zoom ${camRange.zmin}..${camRange.zmax} shakes=${def.camera.shakes.length}`);
+for (const [id, F] of Object.entries(framingReport.characters))
+  console.log(
+    `  frame ${id.padEnd(4)} screenH mean=${F.meanScreenHeight} min=${F.minScreenHeight} clippedWhileActing=${F.clippedWhileActing}${F.clipRanges ? ` (${F.clipRanges})` : ""} offscreen=${F.offscreenFrames}`,
+  );
+console.log(
+  `  frame use: subject span=${framingReport.meanSubjectSpan} headroom=${framingReport.meanHeadroom} abrupt camera frames=${framingReport.abruptCameraFrames}${framingReport.abruptRanges ? ` (${framingReport.abruptRanges})` : ""}`,
+);
 console.log(`  motion/sec: ${motionPerSecond.join(" ")}  (static seconds: ${staticSeconds})`);
 for (const w of warn) console.log(`  WARN ${w}`);
 for (const h of hard) console.log(`  FAIL ${h.check}: ${h.detail}`);

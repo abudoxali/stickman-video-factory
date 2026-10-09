@@ -173,6 +173,55 @@ export const Fx: React.FC<{ fx: FxKey; frame: number; origin?: { x: number; y: n
         />
       );
     }
+    case "stars": {
+      // dizzy stars orbiting the head (use follow: {char, part: "headTop"})
+      const fade = Math.min(1, t / 4) * (1 - ease.inQuad(clamp((u - 0.75) / 0.25, 0, 1)));
+      return (
+        <g transform={`translate(${x} ${y}) scale(${s})`} opacity={fade}>
+          <ellipse cx={0} cy={0} rx={78} ry={20} fill="none" stroke={INK} strokeWidth={2.5} strokeDasharray="8 10" opacity={0.35} />
+          {[0, 1, 2].map((i) => {
+            const a = t * 0.24 + (i * Math.PI * 2) / 3;
+            const px = Math.cos(a) * 78;
+            const py = Math.sin(a) * 20;
+            const front = Math.sin(a) > 0;
+            const sz = (front ? 17 : 12) * (0.9 + 0.1 * Math.sin(t * 0.5 + i));
+            const pts = Array.from({ length: 10 }, (_, k) => {
+              const r = k % 2 ? sz * 0.45 : sz;
+              const b = (k / 10) * Math.PI * 2 - Math.PI / 2 + t * 0.1;
+              return `${px + Math.cos(b) * r} ${py + Math.sin(b) * r}`;
+            });
+            return <path key={i} d={`M${pts.join(" L")} Z`} fill="#ffd23f" stroke={INK} strokeWidth={3} strokeLinejoin="round" />;
+          })}
+        </g>
+      );
+    }
+    case "leaves": {
+      // a few leaves shaken loose, tumbling down on a sway
+      return (
+        <g transform={`translate(${x} ${y}) scale(${s})`}>
+          {Array.from({ length: 6 }).map((_, i) => {
+            const h = hash(i * 3.7 + fx.at);
+            const delay = h * 0.25;
+            const tt = clamp((u - delay) / (1 - delay), 0, 1);
+            if (tt <= 0) return null;
+            const px = (h - 0.5) * 260 + 40 * Math.sin(tt * 9 + i);
+            const py = tt * (380 + 160 * hash(i * 1.3));
+            const rot = 60 * Math.sin(tt * 8 + i * 2);
+            return (
+              <path
+                key={i}
+                d="M0 -12 Q10 0 0 12 Q-10 0 0 -12 Z"
+                transform={`translate(${px} ${py}) rotate(${rot})`}
+                fill={i % 2 ? "#73c97a" : "#4fb062"}
+                stroke={INK}
+                strokeWidth={2.5}
+                opacity={1 - ease.inQuad(tt)}
+              />
+            );
+          })}
+        </g>
+      );
+    }
     case "breath": {
       return (
         <g transform={`translate(${x + dir * 30 * u} ${y - 10 * u}) scale(${s * lerp(0.6, 1.2, u)})`} opacity={1 - u}>

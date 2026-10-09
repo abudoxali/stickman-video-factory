@@ -5,7 +5,10 @@ import type { SceneDef } from "../engine/scene";
  * MOTION LIBRARY — a labelled test reel that exercises the motion vocabulary
  * not used by THE SURPRISE (run, turn, point, explain, talk, wave, shrug,
  * push, pull, sit, standUp, fall, getUp, pickUp, handOver, lookAround,
- * jump, celebrate, duck). Plain stage, static camera, captions per section.
+ * jump, celebrate, duck) plus the milestone-2 clips reused unchanged from
+ * SHOW-OFF: the Blender-authored keyed clip "warmUp" (on Bo, and mirrored on
+ * Pip — different proportions, same data), "hit" and "eat".
+ * Plain stage, static camera, captions per section.
  */
 const FLOOR = 1500;
 const CRATE: [number, number] = [790, FLOOR];
@@ -19,6 +22,8 @@ export const MOTION_LIBRARY_CAPTIONS: { from: number; to: number; text: string }
   { from: 500, to: 598, text: "fall · get up | laugh" },
   { from: 598, to: 722, text: "pick up · hand over" },
   { from: 722, to: 870, text: "jump · land · celebrate · duck · wave" },
+  { from: 870, to: 952, text: "warmUp (Blender clip) on Bo · mirrored on Pip" },
+  { from: 952, to: 1020, text: "hit (from front) · eat (mime)" },
 ];
 
 export const motionLibrary: SceneDef = {
@@ -26,7 +31,7 @@ export const motionLibrary: SceneDef = {
   width: 1080,
   height: 1920,
   fps: 30,
-  durationInFrames: 870,
+  durationInFrames: 1020,
   floorY: FLOOR,
   stage: "plain",
   autoDust: true,
@@ -59,6 +64,8 @@ export const motionLibrary: SceneDef = {
         { clip: "handOver", start: 656, end: 694, in: 8, out: 8, params: { to: "bo", side: "F", height: -6 } },
         { clip: "celebrate", start: 734, end: 792, in: 8, out: 8 },
         { clip: "wave", start: 812, end: 866, in: 8, out: 4, params: { side: "F" } },
+        { clip: "warmUp", start: 880, end: 946, in: 6, out: 8, params: { mirror: true } },
+        { clip: "hit", start: 960, end: 992, in: 1, out: 8, params: { from: "front", strength: 1 } },
       ],
       expressions: [
         { at: 0, expr: "neutral" },
@@ -105,6 +112,8 @@ export const motionLibrary: SceneDef = {
         { clip: "celebrate", start: 744, end: 790, in: 8, out: 8 },
         { clip: "duck", start: 796, end: 818, in: 4, out: 10 },
         { clip: "wave", start: 822, end: 866, in: 8, out: 4, params: { side: "F" } },
+        { clip: "warmUp", start: 874, end: 940, in: 6, out: 8 },
+        { clip: "eat", start: 958, end: 1012, in: 8, out: 8, params: { side: "F", bites: [14, 30], reach: 26, drop: 46 } },
       ],
       expressions: [
         { at: 0, expr: "happy" },

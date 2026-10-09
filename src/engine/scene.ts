@@ -1,3 +1,4 @@
+import type { SceneAudioDef } from "./audio";
 import type { ExpressionName } from "./expressions";
 import type { LocoMove } from "./locomotion";
 import type { EaseName } from "./math";
@@ -78,6 +79,17 @@ export type PropState =
       from: number;
       mode: "ballistic";
       to: [number, number];
+      /**
+       * Land on a moving target instead of "to": the anchor/prop/point as it
+       * is at the landing frame (from + dur). Catches and hits then line up
+       * exactly with hands and heads without manual probing.
+       */
+      toRef?: TargetRef;
+      /**
+       * With toRef: stop this many px short of the anchor, along the line back
+       * to the throw origin (e.g. ball radius + head radius so surfaces touch).
+       */
+      contact?: number;
       dur: number;
       /** Extra apex height above the higher endpoint. */
       peak?: number;
@@ -116,7 +128,7 @@ export interface PropTrack {
   id: string;
   kind: string;
   states: PropState[];
-  /** Draw order: "back" = behind characters, "front" = in front, or "char:<id>" = right after that character. */
+  /** Draw order: "back" = behind characters, "front" = in front, "char:<id>" = right after that character, "behind:<id>" = right before it (e.g. a ball cocked behind the head). */
   layer: PropLayer;
   /** Optional layer changes over time. */
   layerKeys?: { from: number; layer: PropLayer }[];
@@ -131,7 +143,7 @@ export interface PropTrack {
   scale?: number;
 }
 
-export type PropLayer = "back" | "front" | `char:${string}`;
+export type PropLayer = "back" | "front" | `char:${string}` | `behind:${string}`;
 
 export interface ParamKey {
   at: number;
@@ -139,14 +151,49 @@ export interface ParamKey {
   ease?: EaseName;
 }
 
+/**
+ * Shot sizes for auto-framing (vertical 9:16 grammar):
+ *  wide   – geography: whole figures small in the set (~35 % of frame height)
+ *  full   – full figures, big (~55 %)
+ *  medium – waist-up (~60 %)
+ *  close  – head and shoulders (~45 %)
+ *  insert – a prop or detail filling the frame centre
+ */
+export type ShotSize = "wide" | "full" | "medium" | "close" | "insert";
+
+export interface ShotSpec {
+  /** Subjects: character ids and/or "prop:<id>". */
+  on: string[];
+  size?: ShotSize;
+  /** Screen position (0..1) of the subjects' box centre. Defaults per size. */
+  sx?: number;
+  sy?: number;
+  /** Override the size-derived fill (fraction of frame height the subjects occupy). */
+  fill?: number;
+  /** Solve the framing at this frame instead of the key frame (frame the pose the move ends on). */
+  solveAt?: number;
+  /**
+   * Tracking shot: re-solve every frame while this key is active (critically
+   * damped, so the camera trails the subject smoothly instead of jittering).
+   */
+  track?: boolean;
+  /** Tracking lag in frames (default 6). */
+  lag?: number;
+}
+
 export interface CameraKey {
   at: number;
-  x: number;
-  y: number;
-  zoom: number;
+  /** World point at the frame centre. Optional when `shot` frames it. */
+  x?: number;
+  y?: number;
+  zoom?: number;
   rot?: number;
   /** Easing used to arrive at this key from the previous one. */
   ease?: EaseName;
+  /** Auto-framing: x/y/zoom are solved from the subjects (explicit values win). */
+  shot?: ShotSpec;
+  /** Hard cut: hold the previous framing until this key, then switch instantly (editing cut). */
+  cut?: boolean;
 }
 
 export interface ShakeKey {
@@ -158,7 +205,7 @@ export interface ShakeKey {
 
 export interface FxKey {
   at: number;
-  kind: "dust" | "puff" | "smoke" | "impactLines" | "confetti" | "sparkle" | "motionArc" | "breath";
+  kind: "dust" | "puff" | "smoke" | "impactLines" | "confetti" | "sparkle" | "motionArc" | "breath" | "stars" | "leaves";
   x: number;
   y: number;
   dur?: number;
@@ -184,7 +231,7 @@ export interface SceneDef {
   /** Keyframed set-dressing parameters (door swing, lamp glow ...). */
   set: Record<string, ParamKey[]>;
   /** Which set to draw. */
-  stage?: "room" | "plain";
+  stage?: "room" | "park" | "plain";
   /**
    * Draw order tokens: "set:back", "set:doorway", "set:door", "shadows",
    * "char:<id>", "props:back", "props:front", "fx", "set:fore".
@@ -192,4 +239,8 @@ export interface SceneDef {
   drawOrder?: string[];
   /** Spawn dust puffs automatically on jump landings / falls. */
   autoDust?: boolean;
+  /** Smear frames on fast arms (default on). */
+  limbSmears?: boolean;
+  /** Sound effects: authored cues + automatic footsteps/landings (see engine/audio.ts). */
+  audio?: SceneAudioDef;
 }

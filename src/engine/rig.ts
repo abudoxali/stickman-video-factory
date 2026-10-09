@@ -93,6 +93,7 @@ export const restPose = (s: CharacterSpec, x = 0, floorY = 0, facing = 1): Pose 
   puff: 0,
   sweat: 0,
   crossEye: 0,
+  shine: 0,
   hairSwing: 0,
   hairStretch: 1,
 });
@@ -142,10 +143,16 @@ const chain = (a: Vec2, upperAngle: number, rel: number, l1: number, l2: number)
 export const ELBOW_POLE = v(-0.25, 1);
 export const KNEE_POLE = v(1, 0.12);
 
-/** Visual mirror factor; never fully zero so a turn reads as a thin "edge-on" frame. */
+/**
+ * Visual mirror factor during turns. The body narrows to about a third of its
+ * width (reads as the torso rotating through a front view) while the renderer
+ * keeps the head round and turns the face to camera — the classic cartoon
+ * turn, instead of a paper-thin edge-on frame.
+ */
+export const TURN_MIN_SCALE = 0.34;
 export const facingScale = (facing: number) => {
   const s = facing >= 0 ? 1 : -1;
-  return s * Math.max(0.12, Math.abs(facing));
+  return s * Math.max(TURN_MIN_SCALE, Math.abs(facing));
 };
 
 export const makeTransforms = (pose: Pose) => {
@@ -292,6 +299,63 @@ export const solvePose = (s: CharacterSpec, pose0: Pose): { pose: Pose; joints: 
     toLocal,
   };
   return { pose, joints };
+};
+
+// ---------------------------------------------------------------------------
+// Hand-space arm blending.
+//
+// Lerping shoulder and elbow angles independently between two distant poses
+// makes the hand swing out on a wide detour (the elbow unfolds and refolds
+// while the shoulder turns). Real arms move the hand along an arc around the
+// shoulder while the reach distance changes monotonically. So we blend the
+// wrist in shoulder-centred polar coordinates (direction + reach) and solve
+// the elbow back from the reach. The elbow keeps its bend side, limbs keep
+// their length, and the direction follows the same way round as the
+// angle-space blend would (never "through the back" unexpectedly).
+// ---------------------------------------------------------------------------
+
+/** Wrist relative to the shoulder for (shoulder, elbow) angles: [reach, direction]. */
+export const armToPolar = (l1: number, l2: number, sh: number, el: number) => {
+  const reach = Math.sqrt(Math.max(0, l1 * l1 + l2 * l2 + 2 * l1 * l2 * Math.cos(el)));
+  const off = Math.atan2(l2 * Math.sin(el), l1 + l2 * Math.cos(el));
+  return { reach, dirAngle: sh + off };
+};
+
+/** Inverse of armToPolar for a given elbow bend sign. */
+export const armFromPolar = (l1: number, l2: number, reach: number, dirAngle: number, bendSign: 1 | -1) => {
+  const r = clamp(reach, Math.abs(l1 - l2) + 1e-6, l1 + l2 - 1e-6);
+  const cosEl = clamp((r * r - l1 * l1 - l2 * l2) / (2 * l1 * l2), -1, 1);
+  const el = bendSign * Math.acos(cosEl);
+  const off = Math.atan2(l2 * Math.sin(el), l1 + l2 * Math.cos(el));
+  return { sh: dirAngle - off, el };
+};
+
+/**
+ * Blend arm angles A -> B by weight w in hand space. Falls back to plain
+ * angle lerp when the elbow changes bend side (no meaningful polar path).
+ */
+export const blendArmPolar = (
+  s: Pick<CharacterSpec, "upperArm" | "foreArm">,
+  a: { sh: number; el: number },
+  b: { sh: number; el: number },
+  w: number,
+) => {
+  const angle = { sh: a.sh + (b.sh - a.sh) * w, el: a.el + (b.el - a.el) * w };
+  if (w <= 0) return { sh: a.sh, el: a.el };
+  if (w >= 1) return { sh: b.sh, el: b.el };
+  const sa = Math.sign(a.el) || 1;
+  const sb = Math.sign(b.el) || 1;
+  if (sa !== sb || Math.abs(a.el) < 0.05 || Math.abs(b.el) < 0.05) return angle;
+  const pa = armToPolar(s.upperArm, s.foreArm, a.sh, a.el);
+  const pb = armToPolar(s.upperArm, s.foreArm, b.sh, b.el);
+  // Travel the same way round as the angle-space blend (keeps authored arcs
+  // such as wind-ups going the intended direction).
+  let d = pb.dirAngle - pa.dirAngle;
+  const want = b.sh - a.sh;
+  while (d - want > Math.PI) d -= Math.PI * 2;
+  while (d - want < -Math.PI) d += Math.PI * 2;
+  const reach = a.el === b.el ? pa.reach : pa.reach + (pb.reach - pa.reach) * w;
+  return armFromPolar(s.upperArm, s.foreArm, reach, pa.dirAngle + d * w, sa as 1 | -1);
 };
 
 /**

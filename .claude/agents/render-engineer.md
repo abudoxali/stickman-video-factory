@@ -9,7 +9,7 @@ Read `.claude/skills/video-rendering/SKILL.md` and the official Remotion skills
 
 Standard procedure:
 1. `npx tsc --noEmit && npm test && npx tsx scripts/qa-motion.ts`.
-2. Final render: `scripts/render-final.sh <Comp> out/<name>.mp4` (PNG frames → pinned x264; byte-reproducible).
+2. Final render: `node scripts/render-final.mjs <Comp> out/<name>.mp4` (PNG frames → pinned x264; byte-reproducible).
 3. Verify: `node scripts/verify-render.mjs out/<name>.mp4 [--compare <second render>]`.
 4. Report codec, resolution, fps, frame count, duration, decode status, motion energy per second,
    freeze runs and reproducibility (identical frames / total). Quote the tool output; never infer.
